@@ -3,9 +3,15 @@
 varying vec4 color;
 varying vec4 texcoord;
 varying vec4 lmcoord;
+varying float vertexToCameraDistance;
 
 void main() {
-    gl_Position = ftransform();
+    // position in camera(steve)
+    vec4 positionInView = gl_ModelViewMatrix * gl_Vertex;
+    gl_Position = gl_ProjectionMatrix * positionInView;
+    // the length from object vertex to camera center
+    vertexToCameraDistance = length(positionInView.xyz);
+
     color = gl_Color;
     // 0 - texcoord
     // 1 - lightmap texcoord
