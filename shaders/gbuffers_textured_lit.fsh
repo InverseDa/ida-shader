@@ -8,11 +8,15 @@ varying vec4 color;
 varying vec4 texcoord;
 varying vec4 lmcoord;
 varying float vertexToCameraDistance;
+varying vec2 normal;
 
 void main() {
     // color: the biome color, texture: gray texture color
     // texture * color = RealColor
+/* DRAWBUFFERS:02 */
     gl_FragData[0] = texture2D(texture, texcoord.st) * texture2D(lightmap, lmcoord.st) * color;
+    gl_FragData[1] = vec4(normal, 0.0, 1.0);
+
     // 9729 - linear fog
     // 2048 - exp fog
     if(fogMode == 9729)
