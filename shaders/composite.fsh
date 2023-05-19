@@ -19,8 +19,10 @@ uniform sampler2DShadow shadow;
 uniform sampler2D depthtex0;
 uniform sampler2D gcolor;
 uniform sampler2D gnormal;
-uniform float far;
 uniform vec3 sunPosition;
+uniform float viewWidth;
+uniform float viewHeight;
+uniform float far;
 
 varying vec4 texcoord;
 
@@ -66,8 +68,27 @@ float shadowMapping(vec4 positionInWorld, float dist, vec3 normal) {
     return shade;
 }
 
+vec4 bloomColor(vec4 color) {
+    float brightColor = 0.299 * color.r + 0.587 * color.g + 0.114 * color.b;
+    return brightColor < 0.5 ? vec4(0.0) : color;
+}
+
+vec3 bloom() {
+    int radius = 15;
+    vec3 sum = vec3(0.0);
+    for(int i = -radius; i <= radius; i++) {
+        for(int j = -radius; j <= radius; j++) {
+            vec2 offset = vec2(i / viewWidth, j / viewHeight);
+            sum += bloomColor(texture2D(gcolor, texcoord.st + offset)).rgb;
+        }
+    }
+    sum /= pow(radius + 1, 2);
+    return sum * 0.3;
+}
+
 void main() {
     vec4 color = texture2D(gcolor, texcoord.st);
+    color.rgb += bloom();
     vec3 normal = normalDecode(texture2D(gnormal, texcoord.st).rg);
     vec4 positionInWorld = getWorldPositionShadow(normal);
     // near <= positionInWorld.z
