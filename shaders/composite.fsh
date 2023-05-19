@@ -4,12 +4,13 @@
 const int RG16 = 0;
 const int gnormalFormat = RG16;
 const bool shadowHardwareFiltering = true;
+const int shadowMapResolution = 2048;
 
 uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelViewInverse;
 uniform mat4 shadowModelView;
 uniform mat4 shadowProjection;
-uniform sampler2D shadow;
+uniform sampler2DShadow shadow;
 uniform sampler2D depthtex0;
 uniform sampler2D gcolor;
 uniform sampler2D gnormal;
@@ -27,23 +28,23 @@ vec3 normalDecode(vec2 enc) {
     return nn.xyz * 2.0 + vec3(0.0, 0.0, -1.0);
 }
 
-vec4 getWorldPosition() {
+vec4 getWorldPositionShadow(vec3 normal) {
     float depth = texture2D(depthtex0, texcoord.st).x;
     vec4 positionInView = gbufferProjectionInverse * vec4(texcoord.x * 2.0 - 1.0, texcoord.y * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     positionInView /= positionInView.w;
-    vec4 positionInWorld = gbufferModelViewInverse * positionInView;
+    vec4 positionInWorld = gbufferModelViewInverse * (positionInView + vec4(normal * 0.05 * sqrt(abs(positionInView.z)), 0.0));
     return positionInWorld;
 }
 
-float shadowMapping(vec4 positionInWorld, float dist, vec3 normal) {
+float shadowMapping(vec4 positionInWorld, float dist, vec3 normal, float alpha) {
     // dist > 0.9, dont render sky's shadow
-    if(dist > 0.9) return 0.0;
+    if(dist > 0.9 || alpha < 1.0) return 0.0;
 
     float shade = 0.0;
     // the angle bettween normal and light
     float cosine = dot(normalize(sunPosition), normal);
 
-    if(cosine <= 0.1) shade = 1.0;
+    if(cosine <= 0.1) return 1.0;
     else {
         vec4 positionInSunNDC = shadowProjection * shadowModelView * positionInWorld;
         float distb = sqrt(positionInSunNDC.x * positionInSunNDC.x + positionInSunNDC.y * positionInSunNDC.y);
@@ -51,21 +52,20 @@ float shadowMapping(vec4 positionInWorld, float dist, vec3 normal) {
         positionInSunNDC.xy /= distortFactor;
         positionInSunNDC /= positionInSunNDC.w;
         positionInSunNDC = positionInSunNDC * 0.5 + 0.5;
-        float depthInSunView = texture2D(shadow, positionInSunNDC.st).z;
-        if(depthInSunView + 0.0001 < positionInSunNDC.z) shade = 1.0;
-        if(cosine < 0.2) shade = max(shade, 1.0 - (cosine - 0.1) * 10.0);
+        shade = 1.0 - shadow2D(shadow, vec3(positionInSunNDC.st, positionInSunNDC.z - 0.0001)).z;
     }
     return shade;
 }
 
 void main() {
+    vec4 color = texture2D(gcolor, texcoord.st);
     vec3 normal = normalDecode(texture2D(gnormal, texcoord.st).rg);
-    vec4 positionInWorld = getWorldPosition();
+    vec4 positionInWorld = getWorldPositionShadow(normal);
     // near <= positionInWorld.z
     float dist = length(positionInWorld.xyz / far);
-    float shadow = shadowMapping(positionInWorld, dist, normal);
+    float shadow = shadowMapping(positionInWorld, dist, normal, color.a);
+    color.rgb *= (1.0 - shadow * 0.5);
 
 /* DRAWBUFFERS:0 */
-    gl_FragData[0] = texture2D(gcolor, texcoord.st);
-    gl_FragData[0].rgb *= (1.0 - shadow * 0.5);
+    gl_FragData[0] = color;
 }
