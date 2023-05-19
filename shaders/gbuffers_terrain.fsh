@@ -11,8 +11,6 @@ varying vec4 lmcoord;
 varying float vertexToCameraDistance;
 varying vec2 normal;
 
-const int noiseTextureResolution = 256;
-
 void main() {
     // color: the biome color, texture: gray texture color
     // texture * color = RealColor

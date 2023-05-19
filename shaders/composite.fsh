@@ -1,10 +1,15 @@
 #version 130
 #define SHADOW_MAP_BIAS 0.85
 
+// ===================== Shader Configuration =====================
 const int RG16 = 0;
 const int gnormalFormat = RG16;
 const bool shadowHardwareFiltering = true;
 const int shadowMapResolution = 2048;
+const int noiseTextureResolution = 256;
+// =================== End Shader Configuration ===================
+
+const float guassWeight[9] = float[] (0.066812, 0.129101, 0.112504, 0.08782, 0.061406, 0.03846, 0.021577, 0.010843, 0.004881);
 
 uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelViewInverse;
@@ -18,7 +23,6 @@ uniform float far;
 uniform vec3 sunPosition;
 
 varying vec4 texcoord;
-
 
 vec3 normalDecode(vec2 enc) {
     vec4 nn = vec4(2.0 * enc - 1.0, 1.0, -1.0);
