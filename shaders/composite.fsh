@@ -36,15 +36,16 @@ vec4 getWorldPositionShadow(vec3 normal) {
     return positionInWorld;
 }
 
-float shadowMapping(vec4 positionInWorld, float dist, vec3 normal, float alpha) {
+float shadowMapping(vec4 positionInWorld, float dist, vec3 normal) {
     // dist > 0.9, dont render sky's shadow
-    if(dist > 0.9 || alpha < 1.0) return 0.0;
+    if(dist > 0.9) return 0.0;
 
     float shade = 0.0;
     // the angle bettween normal and light
     float cosine = dot(normalize(sunPosition), normal);
 
-    if(cosine <= 0.1) return 1.0;
+    if(cosine <= 0.1) 
+        shade = 1.0;
     else {
         vec4 positionInSunNDC = shadowProjection * shadowModelView * positionInWorld;
         float distb = sqrt(positionInSunNDC.x * positionInSunNDC.x + positionInSunNDC.y * positionInSunNDC.y);
@@ -53,7 +54,11 @@ float shadowMapping(vec4 positionInWorld, float dist, vec3 normal, float alpha) 
         positionInSunNDC /= positionInSunNDC.w;
         positionInSunNDC = positionInSunNDC * 0.5 + 0.5;
         shade = 1.0 - shadow2D(shadow, vec3(positionInSunNDC.st, positionInSunNDC.z - 0.0001)).z;
+        if(cosine < 0.2)  // if light parallel normal (nearly)
+            shade = max(shade, 1.0 - (cosine - 0.1) * 10.0);
     }
+    shade -= clamp((dist - 0.7) * 5.0, 0.0, 1.0); 
+    shade = clamp(shade, 0.0, 1.0);
     return shade;
 }
 
@@ -63,8 +68,8 @@ void main() {
     vec4 positionInWorld = getWorldPositionShadow(normal);
     // near <= positionInWorld.z
     float dist = length(positionInWorld.xyz / far);
-    float shadow = shadowMapping(positionInWorld, dist, normal, color.a);
-    color.rgb *= (1.0 - shadow * 0.5);
+    float shade = shadowMapping(positionInWorld, dist, normal);
+    color.rgb *= (1.0 - shade * 0.35);
 
 /* DRAWBUFFERS:0 */
     gl_FragData[0] = color;
