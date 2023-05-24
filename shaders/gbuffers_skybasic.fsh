@@ -1,4 +1,5 @@
 #version 130
+/* DRAWBUFFERS:02 */
 
 uniform sampler2D texture;
 uniform int fogMode;
@@ -11,7 +12,6 @@ varying float vertexToCameraDistance;
 void main() {
     // color: the biome color, texture: gray texture color
     // texture * color = RealColor
-/* DRAWBUFFERS:02 */
     gl_FragData[0] = texture2D(texture, texcoord.st) * color;
     gl_FragData[1] = vec4(normal, 0.0, 1.0);
     // 9729 - linear fog

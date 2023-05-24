@@ -1,4 +1,5 @@
 #version 130
+/* DRAWBUFFERS:02 */
 
 uniform sampler2D texture;
 uniform sampler2D lightmap;
@@ -13,7 +14,6 @@ varying vec2 normal;
 void main() {
     // color: the biome color, texture: gray texture color
     // texture * color = RealColor
-/* DRAWBUFFERS:02 */
     gl_FragData[0] = texture2D(texture, texcoord.st) * texture2D(lightmap, lmcoord.st) * color;
     gl_FragData[1] = vec4(normal, 0.0, 1.0);
 
