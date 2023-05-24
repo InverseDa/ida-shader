@@ -1,5 +1,5 @@
 #version 130
-/* DRAWBUFFERS:03 */
+/* DRAWBUFFERS:05 */
 
 #define SHADOW_MAP_BIAS 0.85
 
@@ -11,8 +11,6 @@ const int shadowMapResolution = 2048;
 const int noiseTextureResolution = 256;
 // =================== End Shader Configuration ===================
 
-const float guassWeight[9] = float[] (0.066812, 0.129101, 0.112504, 0.08782, 0.061406, 0.03846, 0.021577, 0.010843, 0.004881);
-
 uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelViewInverse;
 uniform mat4 shadowModelView;
@@ -21,6 +19,7 @@ uniform sampler2DShadow shadow;
 uniform sampler2D depthtex0;
 uniform sampler2D gcolor;
 uniform sampler2D gnormal;
+uniform sampler2D colortex4; // blockId texture
 uniform vec3 sunPosition;
 uniform float viewWidth;
 uniform float viewHeight;
@@ -70,11 +69,6 @@ float shadowMapping(vec4 positionInWorld, float dist, vec3 normal) {
     return shade;
 }
 
-vec4 bloomColor(vec4 color) {
-    float brightColor = 0.299 * color.r + 0.587 * color.g + 0.114 * color.b;
-    return brightColor < 0.5 ? vec4(0.0) : color;
-}
-
 void main() {
     vec4 color = texture2D(gcolor, texcoord.st);
     vec3 normal = normalDecode(texture2D(gnormal, texcoord.st).rg);
@@ -84,5 +78,4 @@ void main() {
     float shade = shadowMapping(positionInWorld, dist, normal);
     color.rgb *= (1.0 - shade * 0.40);
     gl_FragData[0] = color;
-    gl_FragData[1] = bloomColor(color);
 }

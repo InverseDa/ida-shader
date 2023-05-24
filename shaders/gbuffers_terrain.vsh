@@ -12,6 +12,7 @@ varying vec4 texcoord;
 varying vec4 lmcoord;
 varying float vertexToCameraDistance;
 varying vec2 normal;
+varying float blockId;
 
 vec2 normalEncode(vec3 norm) {
     vec2 ret = normalize(norm.xy) * (sqrt(-norm.z * 0.5 + 0.5));
@@ -30,13 +31,14 @@ void main() {
     normal = normalEncode(norm);
 
     vec4 position =  gl_Vertex;
-    float blockId = mc_Entity.x;
-    if((blockId == 31.0 || blockId == 37.0 || blockId == 38.0) && mc_midTexCoord.t >= gl_MultiTexCoord0.t) {
+    float id = mc_Entity.x;
+    if((id == 10091) && mc_midTexCoord.t >= gl_MultiTexCoord0.t) {
         vec3 noise = texture2D(noisetex, texcoord.st).rgb;
         position.x += sin(frameTimeCounter * 1.8 + noise.x * 10) * 0.2;
         position.z += sin(frameTimeCounter * 1.8 + noise.y * 10) * 0.2;
     }
 
+    blockId = id;
     // position in camera(steve)
     vec4 positionInView = gl_ModelViewMatrix * position;
     gl_Position = gl_ProjectionMatrix * positionInView;
