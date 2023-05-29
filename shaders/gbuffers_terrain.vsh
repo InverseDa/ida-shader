@@ -3,6 +3,7 @@
 uniform float frameTimeCounter;
 uniform int worldTime;
 uniform sampler2D noisetex;
+uniform vec3 cameraPosition;
 
 attribute vec4 mc_Entity;
 attribute vec4 mc_midTexCoord;
@@ -30,13 +31,15 @@ void main() {
     vec3 norm = gl_NormalMatrix * gl_Normal;
     normal = normalEncode(norm);
 
-    vec4 position =  gl_Vertex;
+    vec4 position = gl_Vertex;
+    position.xyz += cameraPosition;
     float id = mc_Entity.x;
     if((id == 10091) && mc_midTexCoord.t >= gl_MultiTexCoord0.t) {
-        vec3 noise = texture2D(noisetex, texcoord.st).rgb;
+        vec3 noise = texture2D(noisetex, position.xz / 256.0).rgb;
         position.x += sin(frameTimeCounter * 1.8 + noise.x * 10) * 0.2;
         position.z += sin(frameTimeCounter * 1.8 + noise.y * 10) * 0.2;
     }
+    position.xyz -= cameraPosition;
 
     blockId = id;
     // position in camera(steve)
