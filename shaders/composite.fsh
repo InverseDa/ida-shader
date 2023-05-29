@@ -80,7 +80,7 @@ void main() {
         vec4 positionInWorld = getWorldPositionShadow(normal, depth0);
         float dist = length(positionInWorld.xyz / far);
         float shade = shadowMapping(positionInWorld, dist, normal);
-        color.rgb *= (1.0 - shade * 0.40);
+        color.rgb *= (1.0 - shade * 0.50);
     }
     gl_FragData[0] = color;
 }

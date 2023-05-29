@@ -54,6 +54,10 @@ vec3 raytrace(vec3 point, vec3 dir) {
     }
     return hitcolor;
 }
+// TODO: 绘制水面函数
+// vec3 drawWater(vec3 viewPos, vec3 worldPos, vec3 dir) {
+
+// }
 
 void main() {
     vec4 color = texture2D(colortex0, texcoord.st);
