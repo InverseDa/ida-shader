@@ -1,5 +1,5 @@
 #version 130
-/* DRAWBUFFERS:02 */
+/* DRAWBUFFERS:025 */
 
 uniform sampler2D texture;
 uniform int fogMode;
@@ -14,6 +14,7 @@ void main() {
     // texture * color = RealColor
     gl_FragData[0] = texture2D(texture, texcoord.st) * color;
     gl_FragData[1] = vec4(normal, 0.0, 1.0);
+    gl_FragData[2] = vec4(2.0 / 255.0, 0.0, 0.0, 1.0);
     // 9729 - linear fog
     // 2048 - exp fog
     if(fogMode == 9729)
