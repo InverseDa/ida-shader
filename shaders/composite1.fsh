@@ -13,6 +13,7 @@ uniform sampler2D colortex4;    //blockId
 uniform sampler2D colortex5;    //water flag
 uniform sampler2D depthtex0;    //depth0
 uniform sampler2D depthtex1;    //depth1
+uniform sampler2D noisetex;
 uniform int worldTime;
 uniform mat4 gbufferProjection;
 uniform mat4 gbufferProjectionInverse;
