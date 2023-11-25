@@ -17,7 +17,6 @@
     in vec4 lmcoord;
     in float vertexToCameraDistance;
     in vec2 normal;
-    in vec4 blockId;
 
     /* DRAWBUFFERS:024 */
     void main() {
@@ -32,12 +31,11 @@
         } else if(fogMode == 2048) {
             gl_FragData[0].rgb = mix(gl_Fog.color.rgb, gl_FragData[0].rgb, clamp(exp(-vertexToCameraDistance * gl_Fog.density), 0.0, 1.0));
         } 
-        gl_FragData[2] = vec4(blockId);
     }
 #endif
 
 // =====================================================================================
-// ============================== Fragment Shader ======================================
+// =============================== Vertex Shader =======================================
 // =====================================================================================
 #ifdef VERTEX_SHADER
     uniform float frameTimeCounter;
@@ -53,7 +51,6 @@
     out vec4 lmcoord;
     out float vertexToCameraDistance;
     out vec2 normal;
-    out float blockId;
 
     void main() {
         color = gl_Color;
@@ -75,7 +72,6 @@
         }
         position.xyz -= cameraPosition;
 
-        blockId = id;
         // position in camera(steve)
         vec4 positionInView = gl_ModelViewMatrix * position;
         gl_Position = gl_ProjectionMatrix * positionInView;
