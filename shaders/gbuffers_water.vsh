@@ -21,7 +21,7 @@ varying vec2 normal;
 vec4 bump() {
     vec4 pos = gl_Vertex;
     pos.xyz += cameraPosition;
-    pos.y += 0.10 * (sin(pos.x + frameTimeCounter) + cos(pos.z + frameTimeCounter));
+    // pos.y += 0.10 * (sin(pos.x + frameTimeCounter) + cos(pos.z + frameTimeCounter));
     pos.xyz -= cameraPosition;
     return gbufferModelView * pos;
 }

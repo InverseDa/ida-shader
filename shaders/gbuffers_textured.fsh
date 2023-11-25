@@ -6,8 +6,8 @@ uniform int fogMode;
 
 varying vec4 color;
 varying vec4 texcoord;
-varying float vertexToCameraDistance;
 varying vec2 normal;
+varying float vertexToCameraDistance;
 
 void main() {
     // color: the biome color, texture: gray texture color

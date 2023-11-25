@@ -22,11 +22,17 @@ uniform sampler2D gcolor;
 uniform sampler2D gnormal;
 uniform sampler2D colortex4; // blockId texture
 uniform vec3 sunPosition;
+uniform vec3 moonPosition;
 uniform float viewWidth;
 uniform float viewHeight;
 uniform float far;
 
 varying vec4 texcoord;
+varying vec3 skyColor;
+varying vec3 sunColor;
+varying vec3 lightPosition;
+varying float nightValue;
+varying float extShadow;
 
 vec3 normalDecode(vec2 enc) {
     vec4 nn = vec4(2.0 * enc - 1.0, 1.0, -1.0);
@@ -45,11 +51,11 @@ vec4 getWorldPositionShadow(vec3 normal, float depth) {
 
 float shadowMapping(vec4 positionInWorld, float dist, vec3 normal) {
     // dist > 0.9, dont render sky's shadow
-    if(dist > 0.9) return 0.0;
+    if(dist > 0.9) return extShadow;
 
     float shade = 0.0;
     // the angle bettween normal and light
-    float cosine = dot(normalize(sunPosition), normal);
+    float cosine = dot(lightPosition, normal);
 
     if(cosine <= 0.1) 
         shade = 1.0;
@@ -66,21 +72,62 @@ float shadowMapping(vec4 positionInWorld, float dist, vec3 normal) {
     }
     shade -= clamp((dist - 0.7) * 5.0, 0.0, 1.0); 
     shade = clamp(shade, 0.0, 1.0);
-    return shade;
+    return max(shade, extShadow);
+}
+
+float calcShadow(vec3 normal, float depth) {
+    vec4 positionInWorld = getWorldPositionShadow(normal, depth);
+    float dist = length(positionInWorld.xyz / far);
+    float shade = shadowMapping(positionInWorld, dist, normal);
+    return (1.0 - shade * 0.35);
+}
+
+vec3 drawSky(vec3 color, vec4 positionInViewCoord, vec4 positionInWorldCoord) {
+    float dis = length(positionInWorldCoord.xyz) / far;
+    float dis2Sun = 1.0 - dot(normalize(positionInViewCoord.xyz), normalize(sunPosition));
+    float dis2Moon = 1.0 - dot(normalize(positionInViewCoord.xyz), normalize(moonPosition));
+    // draw Sun
+    vec3 drawSun = vec3(0.f);
+    if(dis2Sun < 0.005 && dis > 0.99999) {
+        drawSun = sunColor * 2 * (1.f - nightValue);
+    }
+    // draw Moon
+    vec3 drawMoon = vec3(0.f);
+    if(dis2Moon < 0.05 && dis > 0.99999) {
+        drawMoon = sunColor * 2 * nightValue;
+    }
+    // fog with sun color mix
+    float sunMixFactor = clamp(1.0 - dis2Sun, 0, 1) * (1.f - nightValue);
+    vec3 finalColor = mix(skyColor, sunColor, pow(sunMixFactor, 4));
+    // fog with moon color mix
+    float moonMixFactor = clamp(1.0 - dis2Moon, 0, 1) * nightValue;
+    finalColor = mix(finalColor, sunColor, pow(moonMixFactor, 4));
+
+    return mix(color, finalColor, clamp(pow(dis, 3), 0, 1)) + drawSun + drawMoon;
 }
 
 void main() {
     vec4 color = texture2D(gcolor, texcoord.st);
     vec3 normal = normalDecode(texture2D(gnormal, texcoord.st).rg);
     // near <= positionInWorld.z
+    // depth0 include water and sky
+    // depth1 not include water and sky
     float depth0 = texture2D(depthtex0, texcoord.st).x;
     float depth1 = texture2D(depthtex1, texcoord.st).x;
-    // indicate the block is not cloud and water
-    if(depth0 == depth1) {
-        vec4 positionInWorld = getWorldPositionShadow(normal, depth0);
-        float dist = length(positionInWorld.xyz / far);
-        float shade = shadowMapping(positionInWorld, dist, normal);
-        color.rgb *= (1.0 - shade * 0.50);
-    }
+
+    // 利用深度缓冲建立带深度的ndc坐标
+    vec4 positionInNdcCoord = vec4(texcoord.st * 2 - 1, depth0 * 2-1, 1);
+    // 逆投影变换 -- ndc坐标转到裁剪坐标
+    vec4 positionInClipCoord = gbufferProjectionInverse * positionInNdcCoord;
+    // 透视除法 -- 裁剪坐标转到眼坐标
+    vec4 positionInViewCoord = vec4(positionInClipCoord.xyz / positionInClipCoord.w, 1.0);
+    // 逆 “视图模型” 变换 -- 眼坐标转 “我的世界坐标” 
+    vec4 positionInWorldCoord = gbufferModelViewInverse * positionInViewCoord;
+
+    color.rgb *= calcShadow(normal, depth0);
+
+    // draw sky
+    color.rgb = drawSky(color.rgb, positionInViewCoord, positionInWorldCoord);
+
     gl_FragData[0] = color;
 }
