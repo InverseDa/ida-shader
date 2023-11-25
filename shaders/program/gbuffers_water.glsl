@@ -18,18 +18,18 @@ in vec2 normal;
 
 /* DRAWBUFFERS:02 */
 void main() {
-  vec4 light = texture2D(lightmap, lmcoord.st);
-  vec4 oColor = color;
-  vec4 oNormal = vec4(normal, 0.0, 0.0);
-  if (mat != 10092) {
-    oColor = texture2D(texture, texcoord.st) * light * color;
-  } else {
-    // is water
-    oColor = vec4(vec3(0.05, 0.2, 0.3), 0.5) * light;
-    oNormal.w = 1.0;
-  }
-  gl_FragData[0] = oColor;
-  gl_FragData[1] = oNormal;
+    vec4 light = texture2D(lightmap, lmcoord.st);
+    vec4 oColor = color;
+    vec4 oNormal = vec4(normal, 0.0, 0.0);
+    if (mat != 10092) {
+        oColor = texture2D(texture, texcoord.st) * light * color;
+    } else {
+        // is water
+        oColor = vec4(vec3(0.05, 0.2, 0.3), 0.5) * light;
+        oNormal.w = 1.0;
+    }
+    gl_FragData[0] = oColor;
+    gl_FragData[1] = oNormal;
 }
 #endif
 
@@ -64,16 +64,16 @@ out vec2 normal;
 #endif
 
 void main() {
-  vec4 positionInView;
-  // 对水计算
-  mat = int(mc_Entity.x);
-  positionInView = (mat == 10092) ? gbufferModelView * gl_Vertex
-                                  : gbufferModelView * gl_Vertex;
-  color = gl_Color;
-  normal = normalEncode(gl_NormalMatrix * gl_Normal);
-  gl_Position = gbufferProjection * positionInView;
-  // texture uv
-  texcoord = gl_TextureMatrix[0] * gl_MultiTexCoord0;
-  lmcoord = gl_TextureMatrix[1] * gl_MultiTexCoord1;
+    vec4 positionInView;
+    // 对水计算
+    mat = int(mc_Entity.x);
+    positionInView = (mat == 10092) ? gbufferModelView * gl_Vertex
+                                    : gbufferModelView * gl_Vertex;
+    color = gl_Color;
+    normal = normalEncode(gl_NormalMatrix * gl_Normal);
+    gl_Position = gbufferProjection * positionInView;
+    // texture uv
+    texcoord = gl_TextureMatrix[0] * gl_MultiTexCoord0;
+    lmcoord = gl_TextureMatrix[1] * gl_MultiTexCoord1;
 }
 #endif
