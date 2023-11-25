@@ -6,11 +6,11 @@
 #ifdef FRAGMENT_SHADER
     uniform sampler2D texture;
     uniform int fogMode;
-    varying vec2 normal;
 
-    varying vec4 color;
-    varying vec4 texcoord;
-    varying float vertexToCameraDistance;
+    in vec2 normal;
+    in vec4 color;
+    in vec4 texcoord;
+    in float vertexToCameraDistance;
     
     /* DRAWBUFFERS:025 */
     void main() {
@@ -35,16 +35,10 @@
 // ============================== Fragment Shader ======================================
 // =====================================================================================
 #ifdef VERTEX_SHADER
-    varying vec4 color;
-    varying vec4 texcoord;
-    varying float vertexToCameraDistance;
-    varying vec2 normal;
-
-    vec2 normalEncode(vec3 norm) {
-        vec2 ret = normalize(norm.xy) * (sqrt(-norm.z * 0.5 + 0.5));
-        ret = ret * 0.5 + 0.5;
-        return ret;
-    }
+    out vec4 color;
+    out vec4 texcoord;
+    out float vertexToCameraDistance;
+    out vec2 normal;
 
     void main() {
         // position in camera(steve)

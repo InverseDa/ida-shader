@@ -8,12 +8,12 @@
     uniform sampler2D lightmap;
     uniform int fogMode;
 
-    varying vec4 color;
-    varying vec4 texcoord;
-    varying vec4 lmcoord;
-    varying vec3 skyColor;
-    varying vec2 normal;
-    varying float blockID;
+    in vec4 color;
+    in vec4 texcoord;
+    in vec4 lmcoord;
+    in vec3 skyColor;
+    in vec2 normal;
+    in float blockID;
 
     /* DRAWBUFFERS:02 */
     void main() {
@@ -44,11 +44,11 @@
     uniform int worldTime;
     uniform float frameTimeCounter;
 
-    varying vec4 color;
-    varying vec4 texcoord;
-    varying vec4 lmcoord;
-    varying vec2 normal;
-    varying float blockID;
+    out vec4 color;
+    out vec4 texcoord;
+    out vec4 lmcoord;
+    out vec2 normal;
+    out float blockID;
 
     vec4 bump() {
         vec4 pos = gl_Vertex;
@@ -56,12 +56,6 @@
         pos.y += 0.10 * (sin(pos.x + frameTimeCounter) + cos(pos.z + frameTimeCounter));
         pos.xyz -= cameraPosition;
         return gbufferModelView * pos;
-    }
-
-    vec2 normalEncode(vec3 norm) {
-        vec2 ret = normalize(norm.xy) * (sqrt(-norm.z * 0.5 + 0.5));
-        ret = ret * 0.5 + 0.5;
-        return ret;
     }
 
     // mc_Entity.x == 79.0  ice;

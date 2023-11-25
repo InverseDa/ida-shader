@@ -11,7 +11,7 @@
     uniform sampler2D depthtex0;    //depth0
     uniform sampler2D depthtex1;    //depth1
     
-    varying vec4 texcoord;
+    in vec4 texcoord;
     
     vec3 ACESToneMapping(vec3 color, float adapted_lum) {
     	const float A = 2.51f;
@@ -40,7 +40,7 @@
 // ============================== Fragment Shader ======================================
 // =====================================================================================
 #ifdef VERTEX_SHADER
-    varying vec4 texcoord;
+    out vec4 texcoord;
     
     void main() {
         gl_Position = ftransform();

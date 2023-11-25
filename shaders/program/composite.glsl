@@ -31,20 +31,12 @@
     uniform float far;
     uniform float near;
 
-    varying vec4 texcoord;
-    varying vec3 skyColor;
-    varying vec3 sunColor;
-    varying vec3 lightPosition;
-    varying float nightValue;
-    varying float extShadow;
-
-    vec3 normalDecode(vec2 enc) {
-        vec4 nn = vec4(2.0 * enc - 1.0, 1.0, -1.0);
-        float l = dot(nn.xyz,-nn.xyw);
-        nn.z = l;
-        nn.xy *= sqrt(l);
-        return nn.xyz * 2.0 + vec3(0.0, 0.0, -1.0);
-    }
+    in vec4 texcoord;
+    in vec3 skyColor;
+    in vec3 sunColor;
+    in vec3 lightPosition;
+    in float nightValue;
+    in float extShadow;
 
     // ========================== Draw Shadow ==========================
     vec4 getWorldPositionShadow(vec3 normal, float depth) {
@@ -150,12 +142,12 @@
     uniform vec3 moonPosition;
     uniform int worldTime;
 
-    varying vec4 texcoord;
-    varying vec3 lightPosition;
-    varying vec3 skyColor;
-    varying vec3 sunColor;
-    varying float nightValue;
-    varying float extShadow;
+    out vec4 texcoord;
+    out vec3 lightPosition;
+    out vec3 skyColor;
+    out vec3 sunColor;
+    out float nightValue;
+    out float extShadow;
 
     vec3 skyColorArr[] = vec3[24](
         vec3(0.1, 0.6, 0.9),        // 0-1000
