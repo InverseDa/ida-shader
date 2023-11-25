@@ -6,7 +6,7 @@
 #ifdef FRAGMENT_SHADER
     uniform sampler2D texture;
     
-    varying vec4 texcoord;
+    in vec4 texcoord;
     
     void main() {
         gl_FragData[0] = texture2D(texture, texcoord.st);
@@ -17,7 +17,7 @@
 // ============================== Fragment Shader ======================================
 // =====================================================================================
 #ifdef VERTEX_SHADER
-    varying vec4 texcoord;
+    out vec4 texcoord;
     
     void main() {
         gl_Position = ftransform();
