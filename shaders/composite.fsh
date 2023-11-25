@@ -1,5 +1,4 @@
 #version 130
-/* DRAWBUFFERS:0 */
 
 #define SHADOW_MAP_BIAS 0.85
 
@@ -11,6 +10,7 @@ const int shadowMapResolution = 2048;
 const int noiseTextureResolution = 256;
 // =================== End Shader Configuration ===================
 
+uniform mat4 gbufferProjection;
 uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelViewInverse;
 uniform mat4 shadowModelView;
@@ -20,12 +20,15 @@ uniform sampler2D depthtex0;
 uniform sampler2D depthtex1;
 uniform sampler2D gcolor;
 uniform sampler2D gnormal;
+uniform sampler2D colortex5;
 uniform sampler2D colortex4; // blockId texture
 uniform vec3 sunPosition;
 uniform vec3 moonPosition;
+uniform vec3 cameraPosition;
 uniform float viewWidth;
 uniform float viewHeight;
 uniform float far;
+uniform float near;
 
 varying vec4 texcoord;
 varying vec3 skyColor;
@@ -42,10 +45,11 @@ vec3 normalDecode(vec2 enc) {
     return nn.xyz * 2.0 + vec3(0.0, 0.0, -1.0);
 }
 
+// ========================== Draw Shadow ==========================
 vec4 getWorldPositionShadow(vec3 normal, float depth) {
-    vec4 positionInView = gbufferProjectionInverse * vec4(texcoord.x * 2.0 - 1.0, texcoord.y * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
-    positionInView /= positionInView.w;
-    vec4 positionInWorld = gbufferModelViewInverse * (positionInView + vec4(normal * 0.05 * sqrt(abs(positionInView.z)), 0.0));
+    vec4 viewPos = gbufferProjectionInverse * vec4(texcoord.x * 2.0 - 1.0, texcoord.y * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    viewPos /= viewPos.w;
+    vec4 positionInWorld = gbufferModelViewInverse * (viewPos + vec4(normal * 0.05 * sqrt(abs(viewPos.z)), 0.0));
     return positionInWorld;
 }
 
@@ -82,6 +86,7 @@ float calcShadow(vec3 normal, float depth) {
     return (1.0 - shade * 0.35);
 }
 
+// ========================== Draw Sky ==========================
 vec3 drawSky(vec3 color, vec4 positionInViewCoord, vec4 positionInWorldCoord) {
     float dis = length(positionInWorldCoord.xyz) / far;
     float dis2Sun = 1.0 - dot(normalize(positionInViewCoord.xyz), normalize(sunPosition));
@@ -106,28 +111,29 @@ vec3 drawSky(vec3 color, vec4 positionInViewCoord, vec4 positionInWorldCoord) {
     return mix(color, finalColor, clamp(pow(dis, 3), 0, 1)) + drawSun + drawMoon;
 }
 
+// ========================== Draw Water ==========================
+
+
+// ========================== MAIN ==========================
+/* DRAWBUFFERS:0 */
 void main() {
-    vec4 color = texture2D(gcolor, texcoord.st);
-    vec3 normal = normalDecode(texture2D(gnormal, texcoord.st).rg);
     // near <= positionInWorld.z
     // depth0 include water and sky
     // depth1 not include water and sky
     float depth0 = texture2D(depthtex0, texcoord.st).x;
     float depth1 = texture2D(depthtex1, texcoord.st).x;
+    vec4 clipPos = gbufferProjectionInverse * vec4(texcoord.st * 2 - 1, depth0 * 2 - 1, 1);
+    vec4 viewPos = clipPos / clipPos.w;
+    vec4 worldPos = gbufferModelViewInverse * viewPos;
 
-    // 利用深度缓冲建立带深度的ndc坐标
-    vec4 positionInNdcCoord = vec4(texcoord.st * 2 - 1, depth0 * 2-1, 1);
-    // 逆投影变换 -- ndc坐标转到裁剪坐标
-    vec4 positionInClipCoord = gbufferProjectionInverse * positionInNdcCoord;
-    // 透视除法 -- 裁剪坐标转到眼坐标
-    vec4 positionInViewCoord = vec4(positionInClipCoord.xyz / positionInClipCoord.w, 1.0);
-    // 逆 “视图模型” 变换 -- 眼坐标转 “我的世界坐标” 
-    vec4 positionInWorldCoord = gbufferModelViewInverse * positionInViewCoord;
+    vec4 color = texture2D(gcolor, texcoord.st);
+    vec3 normal = normalDecode(texture2D(gnormal, texcoord.st).rg);
 
+    // calculate shadow
     color.rgb *= calcShadow(normal, depth0);
-
     // draw sky
-    color.rgb = drawSky(color.rgb, positionInViewCoord, positionInWorldCoord);
+    color.rgb = drawSky(color.rgb, viewPos, worldPos);
+    // TODO draw water
 
     gl_FragData[0] = color;
 }

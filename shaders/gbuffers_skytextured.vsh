@@ -2,6 +2,7 @@
 
 varying vec4 color;
 varying vec4 texcoord;
+varying vec2 normal;
 
 vec2 normalEncode(vec3 norm) {
     vec2 ret = normalize(norm.xy) * (sqrt(-norm.z * 0.5 + 0.5));

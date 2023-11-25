@@ -1,6 +1,4 @@
 #version 130
-/* DRAWBUFFERS:02 */
-
 uniform sampler2D texture;
 uniform int fogMode;
 
@@ -9,6 +7,7 @@ varying vec4 texcoord;
 varying vec2 normal;
 varying float vertexToCameraDistance;
 
+/* DRAWBUFFERS:02 */
 void main() {
     // color: the biome color, texture: gray texture color
     // texture * color = RealColor

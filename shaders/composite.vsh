@@ -14,6 +14,7 @@ varying vec3 lightPosition;
 varying vec3 skyColor;
 varying vec3 sunColor;
 varying float nightValue;
+varying float extShadow;
 
 vec3 skyColorArr[] = vec3[24](
     vec3(0.1, 0.6, 0.9),        // 0-1000
