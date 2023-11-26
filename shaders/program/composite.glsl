@@ -7,7 +7,8 @@
 // ===================== Shader Configuration =====================
 const int RG16 = 0;
 const int gnormalFormat = RG16;
-const int shadowMapResolution = 2048;
+const int shadowMapResolution = 2048;   // 阴影分辨率 默认 1024
+const float	sunPathRotation	= -40.0;    // 太阳偏移角 默认 0
 // const int noiseTextureResolution = 256;
 // =================== End Shader Configuration ===================
 
@@ -36,20 +37,29 @@ uniform int worldTime;
 in vec4 texcoord;
 in vec3 skyColor;
 in vec3 sunColor;
-in vec3 lightPosition;
 in float nightValue;
-in float extShadow;
 
 // ========================== Draw Shadow ==========================
-float shadowMapping(vec4 worldPos, vec3 normal) {
+float UnderWaterFadeOut(float d0, float d1, vec4 viewPos, vec3 normal) {
+    d0 = screenDepthToLinerDepth(near, far, d0);
+    d1 = screenDepthToLinerDepth(near, far, d1);
+
+    float cosine = dot(normalize(viewPos.xyz), normalize(normal));
+    cosine = clamp(abs(cosine), 0, 1);
+
+    return clamp(1.0 - (d1 - d0) * cosine * 0.1, 0, 1);
+}
+
+float shadowMapping(vec4 worldPos, vec3 normal, float strength) {
     vec4 positionInSunNDC = shadowProjection * shadowModelView * worldPos;
     positionInSunNDC /= positionInSunNDC.w;
     // fish eye distortion
-    positionInSunNDC.xy = positionInSunNDC.xy / (0.15 + 0.85 * length(positionInSunNDC.xy));
+    positionInSunNDC.xy = getFishEyeCoord(positionInSunNDC.xy);
     positionInSunNDC = positionInSunNDC * 0.5 + 0.5; // screen space [0, 1]
     
     float currentDepth = positionInSunNDC.z;
     float dis = length(worldPos.xyz) / far;
+    float shadowStrength = strength * 0.6 * (1 - dis) * (1 - 0.6 * nightValue); // 控制昼夜阴影强度
 
     int radius = 1;
     float shade = pow(radius * 2 + 1, 2);
@@ -63,9 +73,10 @@ float shadowMapping(vec4 worldPos, vec3 normal) {
         }
     }
     shade /= pow(radius * 2 + 1, 2);
-
-    return shade;
+    
+    return shade * shadowStrength + (1 - shadowStrength);
 }
+
 
 // ========================== Draw Sky ==========================
 vec3 drawSky(vec3 color, vec4 viewPos, vec4 worldPos) {
@@ -127,18 +138,20 @@ void main() {
 
     vec4 viewPosNotWater = gbufferProjectionInverse * vec4(texcoord.st * 2.0 - 1.0, depth1 * 2.0 - 1.0, 1.0);
     viewPosNotWater /= viewPosNotWater.w;
-    vec4 worldPosNotWaterForShadow = gbufferModelViewInverse * (viewPosNotWater + vec4(normal * 0.05 * sqrt(abs(viewPosNotWater.z)), 0.0));
+    vec4 worldPosNotWaterForShadow = gbufferModelViewInverse * viewPosNotWater;
 
     vec4 blockVector = texture2D(colortex5, texcoord.st);
     bool isWater = (blockVector == WATER_FLAG) ? true : false;
     
     // calculate shadow
-    // color.rgb *= shadowMapping(worldPosNotWaterForShadow, normal);
+    float underWaterShadowFadeOut = UnderWaterFadeOut(depth0, depth1, viewPos, normal);
+    float shade = shadowMapping(worldPosNotWaterForShadow, normal, underWaterShadowFadeOut);
+    color.rgb *= shade;
     // draw sky
     color.rgb = drawSky(color.rgb, viewPos, worldPos);
     // draw water
     if (isWater) {
-    // color.rgb = drawWater(color.rgb, worldPos, viewPos, normal);
+        // color.rgb = drawWater(color.rgb, worldPos, viewPos, normal);
     }
     gl_FragData[0] = color;
 }
@@ -153,40 +166,13 @@ uniform vec3 moonPosition;
 uniform int worldTime;
 
 out vec4 texcoord;
-out vec3 lightPosition;
 out vec3 skyColor;
 out vec3 sunColor;
 out float nightValue;
-out float extShadow;
 
 void main() {
     gl_Position = ftransform();
     texcoord = gl_MultiTexCoord0;
-
-    // 昼夜交替, nightValue 0.f表示白天, nightValue 1.f表示黑夜
-    if (worldTime >= SUNRISE - FADE_START && worldTime <= SUNRISE + FADE_START) {
-        // 处于日出阶段
-        extShadow = 1.0;
-        if (worldTime < SUNRISE - FADE_END)
-            extShadow -= float(SUNRISE - FADE_END - worldTime) / float(FADE_END);
-        else if (worldTime > SUNRISE + FADE_END)
-            extShadow -= float(worldTime - SUNRISE - FADE_END) / float(FADE_END);
-    } else if (worldTime >= SUNSET - FADE_START &&
-               worldTime <= SUNSET + FADE_START) {
-        // 处于日落阶段
-        extShadow = 1.0;
-        if (worldTime < SUNSET - FADE_END)
-            extShadow -= float(SUNSET - FADE_END - worldTime) / float(FADE_END);
-        else if (worldTime > SUNSET + FADE_END)
-            extShadow -= float(worldTime - SUNSET - FADE_END) / float(FADE_END);
-    } else {
-        // 处于白天或黑夜
-        extShadow = 0.0;
-    }
-    if (worldTime < SUNSET || worldTime > SUNRISE)
-        lightPosition = normalize(sunPosition);
-    else
-        lightPosition = normalize(moonPosition);
 
     // 颜色插值
     int hour = worldTime / 1000;

@@ -8,7 +8,9 @@ uniform sampler2D texture;
 
 in vec4 texcoord;
 
-void main() { gl_FragData[0] = texture2D(texture, texcoord.st); }
+void main() {
+    gl_FragData[0] = texture2D(texture, texcoord.st);
+}
 #endif
 
 // =============================================================================
@@ -18,10 +20,8 @@ void main() { gl_FragData[0] = texture2D(texture, texcoord.st); }
 out vec4 texcoord;
 
 void main() {
-  gl_Position = ftransform();
-  float dist = length(gl_Position.xy);
-  float distortFactor = (1.0 - SHADOW_MAP_BIAS) + dist * SHADOW_MAP_BIAS;
-  gl_Position.xy /= distortFactor;
-  texcoord = gl_MultiTexCoord0;
+    gl_Position = ftransform();
+    gl_Position.xy = getFishEyeCoord(gl_Position.xy);
+    texcoord = gl_TextureMatrix[0] * gl_MultiTexCoord0;
 }
 #endif
