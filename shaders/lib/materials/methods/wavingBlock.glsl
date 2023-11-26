@@ -6,7 +6,7 @@ vec4 GetBump() {
     return gbufferModelView * pos;
 }
 
-vec4 GetWave(vec4 worldPos) {
+float GetWave(vec4 worldPos) {
     float speed1 = worldTime * 85 / (noiseTextureResolution * 15);
     vec3 coord1 = worldPos.xyz / noiseTextureResolution;
     coord1.x *= 3;

@@ -1,9 +1,11 @@
 // =========================== Macros ===========================
 #define SHADOW_MAP_BIAS 0.85
-#define SUNRISE 23200
-#define SUNSET 12800
-#define FADE_START 500
-#define FADE_END 250
+#define SUNRISE         23200
+#define SUNSET          12800
+#define FADE_START      500
+#define FADE_END        250
+// BLOCKS AND ITEM
+#define WATER_FLAG vec4(0.0, 0.0, 1.0, 1.0)
 // =========================== Macros ===========================
 const int noiseTextureResolution = 256;
 
