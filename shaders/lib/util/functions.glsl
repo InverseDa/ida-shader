@@ -18,10 +18,16 @@ vec3 normalDecode(vec2 enc) {
     return nn.xyz * 2.0 + vec3(0.0, 0.0, -1.0);
 }
 
+// ============================================================================
+// ============================ Fish Eye Tortoision ===========================
+// ============================================================================
 vec2 getFishEyeCoord(vec2 ndcPos) {
     return ndcPos / (0.15 + 0.85 * length(ndcPos.xy));
 }
 
+// ============================================================================
+// =========================== Linear depth function ==========================
+// ============================================================================
 float screenDepthToLinerDepth(float near, float far, float screenDepth) {
     return 2 * near * far / ((far + near) - screenDepth * (far - near));
 }

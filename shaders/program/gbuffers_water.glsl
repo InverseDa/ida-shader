@@ -1,4 +1,5 @@
 #include "/lib/constant.glsl"
+#include "/lib/util/functions.glsl"
 
 // =============================================================================
 // ============================= Fragment Shader ===============================
@@ -14,13 +15,12 @@ flat in int mat;
 in vec4 color;
 in vec4 texcoord;
 in vec4 lmcoord;
-in vec3 normal;
+in vec2 normal;
 in vec4 viewPos;
 
 void main() {
     vec4 light = texture2D(lightmap, lmcoord.st);
     vec4 oColor = color;
-    vec4 oNormal = vec4(normal * 0.5 + 0.5, 1.0);
     vec4 waterFlag = vec4(1.0);
     if (mat != 10092) {
         oColor = texture2D(texture, texcoord.st) * light * color;
@@ -31,7 +31,7 @@ void main() {
     }
     /* DRAWBUFFERS:025 */
     gl_FragData[0] = oColor;
-    gl_FragData[1] = oNormal;
+    gl_FragData[1] = vec4(normal, 0.0, 1.0);
     gl_FragData[2] = waterFlag;
 }
 #endif
@@ -40,7 +40,6 @@ void main() {
 // ============================== Vertex Shader ================================
 // =============================================================================
 #ifdef VERTEX_SHADER
-attribute vec4 mc_Entity;
 uniform mat4 gbufferProjection;
 uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelView;
@@ -49,13 +48,15 @@ uniform vec3 cameraPosition;
 uniform int worldTime;
 uniform float frameTimeCounter;
 
+in vec4 mc_Entity;
+
 // `flat` used to disable interpolation
 flat out int mat;
 
 out vec4 color;
 out vec4 texcoord;
 out vec4 lmcoord;
-out vec3 normal;
+out vec2 normal;
 out vec4 viewPos;
 
 // mc_Entity.x == 79.0  ice;
@@ -73,7 +74,7 @@ void main() {
     viewPos = (mat == 10092) ? gbufferModelView * gl_Vertex
                              : gbufferModelView * gl_Vertex;
     color = gl_Color;
-    normal = normalize(gl_NormalMatrix * gl_Normal);
+    normal = normalEncode(gl_NormalMatrix * gl_Normal);
     gl_Position = gbufferProjection * viewPos;
     // texture uv
     texcoord = gl_TextureMatrix[0] * gl_MultiTexCoord0;

@@ -7,7 +7,7 @@
 uniform sampler2D colortex0; // color
 uniform sampler2D colortex1; // depth
 uniform sampler2D colortex2; // normal
-uniform sampler2D colortex4; // blockId
+uniform sampler2D colortex5; // block
 uniform sampler2D depthtex0; // depth0
 uniform sampler2D depthtex1; // depth1
 

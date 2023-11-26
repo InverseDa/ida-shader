@@ -6,9 +6,11 @@
 #define FADE_END        250
 // BLOCKS AND ITEM
 #define WATER_FLAG vec4(0.0, 0.0, 1.0, 1.0)
-// =========================== Macros ===========================
+// =========================== Constant ===========================
 const int noiseTextureResolution = 256;
-
+const int shadowMapResolution = 2048;   // 阴影分辨率 默认 1024
+const float	sunPathRotation	= -40.0;    // 太阳偏移角 默认 0
+// =========================== other values ===========================
 vec3 skyColorArr[] = vec3[24](vec3(0.1, 0.6, 0.9),   // 0-1000
                               vec3(0.1, 0.6, 0.9),   // 1000 - 2000
                               vec3(0.1, 0.6, 0.9),   // 2000 - 3000
@@ -60,5 +62,3 @@ vec3 sunColorArr[] = vec3[24](vec3(2, 2, 1),       // 0-1000
                               vec3(0.3, 0.5, 0.9), // 22000 - 23000
                               vec3(0.3, 0.5, 0.9)  // 23000 - 24000(0)
 );
-
-#include "/lib/util/functions.glsl"

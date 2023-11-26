@@ -8,14 +8,12 @@ uniform sampler2D texture;
 
 in vec4 color;
 in vec4 texcoord;
-in vec3 normal;
 
-/* DRAWBUFFERS:02 */
+/* DRAWBUFFERS:0 */
 void main() {
   // color: the biome color, texture: gray texture color
   // texture * color = RealColor
   gl_FragData[0] = texture2D(texture, texcoord.st) * color;
-  gl_FragData[1] = vec4(normal * 0.5 + 0.5, 1.0);
 }
 #endif
 
@@ -35,6 +33,5 @@ void main() {
   color = gl_Color;
   texcoord = gl_TextureMatrix[0] * gl_MultiTexCoord0;
 
-  normal = normalize(gl_NormalMatrix * gl_Normal);
 }
 #endif
