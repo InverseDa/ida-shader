@@ -106,18 +106,15 @@ vec3 drawSky(vec3 color, vec4 viewPos, vec4 worldPos) {
 // ========================== Draw Water ==========================
 #include "/lib/materials/methods/wavingBlock.glsl"
 vec3 drawWater(vec3 color, vec4 worldPos, vec4 viewPos, vec3 normal) {
-    worldPos.xyz += cameraPosition; // 转为世界坐标（绝对坐标）
-
-    // 波浪系数
+    worldPos.xyz += cameraPosition;
     float wave = GetWave(worldPos);
     vec3 finalColor = skyColor;
-    // finalColor *= wave; // 波浪纹理
+    // finalColor *= wave;
 
-    // 透射
-    float cosine = dot(normalize(viewPos.xyz), normalize(normal)); // 计算视线和法线夹角余弦值
+    float cosine = dot(normalize(viewPos.xyz), normalize(normal)); 
     cosine = clamp(abs(cosine), 0, 1);
-    float factor = pow(1.0 - cosine, 4);         // 透射系数
-    finalColor = mix(color, finalColor, factor); // 透射计算
+    float factor = pow(1.0 - cosine, 4);
+    finalColor = mix(color, finalColor, factor); 
 
     return finalColor;
 }
@@ -129,6 +126,7 @@ void main() {
     // depth1 not include water and sky
     float depth0 = texture2D(depthtex0, texcoord.st).x;
     float depth1 = texture2D(depthtex1, texcoord.st).x;
+
     vec4 color = texture2D(colortex0, texcoord.st);
     vec3 normal = texture2D(gnormal, texcoord.st).rgb * 2 - 1;
 
@@ -144,9 +142,9 @@ void main() {
     bool isWater = (blockVector == WATER_FLAG) ? true : false;
     
     // calculate shadow
-    float underWaterShadowFadeOut = UnderWaterFadeOut(depth0, depth1, viewPos, normal);
-    float shade = shadowMapping(worldPosNotWaterForShadow, normal, underWaterShadowFadeOut);
-    color.rgb *= shade;
+    float underWaterShadowFadeOut = UnderWaterFadeOut(depth0, depth1, viewPos, normal); // what it looks like the water shadow (not in water)
+    color.rgb *= shadowMapping(worldPosNotWaterForShadow, normal, underWaterShadowFadeOut);
+
     // draw sky
     color.rgb = drawSky(color.rgb, viewPos, worldPos);
     // draw water

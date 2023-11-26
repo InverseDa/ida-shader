@@ -1,6 +1,7 @@
 
 // ============================================================================
 // ========================= Normal encode and decode =========================
+// Spheremap Transform
 // https://aras-p.info/texts/CompactNormalStorage.html
 // ============================================================================
 vec2 normalEncode(vec3 norm) {
