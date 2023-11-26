@@ -7,7 +7,6 @@
 // ===================== Shader Configuration =====================
 const int RG16 = 0;
 const int gnormalFormat = RG16;
-const bool shadowHardwareFiltering = true;
 const int shadowMapResolution = 2048;
 // const int noiseTextureResolution = 256;
 // =================== End Shader Configuration ===================
@@ -17,9 +16,9 @@ uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelViewInverse;
 uniform mat4 shadowModelView;
 uniform mat4 shadowProjection;
-uniform sampler2DShadow shadow;
 uniform sampler2D depthtex0;
 uniform sampler2D depthtex1;
+uniform sampler2D shadowtex1;
 uniform sampler2D colortex0;
 uniform sampler2D colortex5;
 uniform sampler2D noisetex;
@@ -31,6 +30,7 @@ uniform float viewWidth;
 uniform float viewHeight;
 uniform float far;
 uniform float near;
+uniform float frameTimeCounter;
 uniform int worldTime;
 
 in vec4 texcoord;
@@ -41,38 +41,30 @@ in float nightValue;
 in float extShadow;
 
 // ========================== Draw Shadow ==========================
-float shadowMapping(vec4 positionInWorld, float dist, vec3 normal) {
-    // dist > 0.9, dont render sky's shadow
-    if (dist > 0.9) {
-        return extShadow;
+float shadowMapping(vec4 worldPos, vec3 normal) {
+    vec4 positionInSunNDC = shadowProjection * shadowModelView * worldPos;
+    positionInSunNDC /= positionInSunNDC.w;
+    // fish eye distortion
+    positionInSunNDC.xy = positionInSunNDC.xy / (0.15 + 0.85 * length(positionInSunNDC.xy));
+    positionInSunNDC = positionInSunNDC * 0.5 + 0.5; // screen space [0, 1]
+    
+    float currentDepth = positionInSunNDC.z;
+    float dis = length(worldPos.xyz) / far;
+
+    int radius = 1;
+    float shade = pow(radius * 2 + 1, 2);
+    for(int x = -radius; x <= radius; x++) {
+        for(int y = -radius; y <= radius; y++) {
+            vec2 offset = vec2(x, y) / shadowMapResolution;
+            float closest = texture2D(shadowtex1, positionInSunNDC.xy + offset).x;
+            if (closest + 0.001 <= currentDepth && dis < 0.99) {
+                shade -= 1.0;
+            }
+        }
     }
+    shade /= pow(radius * 2 + 1, 2);
 
-    float shade = 0.0;
-    // the angle bettween normal and light
-    float cosine = dot(lightPosition, normal);
-
-    if (cosine <= 0.1) {
-        shade = 1.0;
-    } else {
-        vec4 positionInSunNDC = shadowProjection * shadowModelView * positionInWorld;
-        float distb = sqrt(positionInSunNDC.x * positionInSunNDC.x + positionInSunNDC.y * positionInSunNDC.y);
-        float distortFactor = (1.0 - SHADOW_MAP_BIAS) + distb * SHADOW_MAP_BIAS;
-        positionInSunNDC.xy /= distortFactor;
-        positionInSunNDC /= positionInSunNDC.w;
-        positionInSunNDC = positionInSunNDC * 0.5 + 0.5;
-        shade = 1.0 - shadow2D(shadow, vec3(positionInSunNDC.st, positionInSunNDC.z - 0.0001)).z;
-        if (cosine < 0.2) // if light parallel normal (nearly)
-            shade = max(shade, 1.0 - (cosine - 0.1) * 10.0);
-    }
-    shade -= clamp((dist - 0.7) * 5.0, 0.0, 1.0);
-    shade = clamp(shade, 0.0, 1.0);
-    return max(shade, extShadow);
-}
-
-float calcShadow(vec4 worldPos, vec3 normal) {
-    float dist = length(worldPos.xyz / far);
-    float shade = shadowMapping(worldPos, dist, normal);
-    return (1.0 - shade * 0.35);
+    return shade;
 }
 
 // ========================== Draw Sky ==========================
@@ -125,26 +117,29 @@ void main() {
     // depth0 include water and sky
     // depth1 not include water and sky
     float depth0 = texture2D(depthtex0, texcoord.st).x;
-    // float depth1 = texture2D(depthtex1, texcoord.st).x;
+    float depth1 = texture2D(depthtex1, texcoord.st).x;
     vec4 color = texture2D(colortex0, texcoord.st);
-    vec3 normal = normalDecode(texture2D(gnormal, texcoord.st).rg);
+    vec3 normal = texture2D(gnormal, texcoord.st).rgb * 2 - 1;
 
-    vec4 viewPos = gbufferProjectionInverse * vec4(texcoord.x * 2.0 - 1.0, texcoord.y * 2.0 - 1.0, depth0 * 2.0 - 1.0, 1.0);
+    vec4 viewPos = gbufferProjectionInverse * vec4(texcoord.st * 2.0 - 1.0, depth0 * 2.0 - 1.0, 1.0);
     viewPos /= viewPos.w;
     vec4 worldPos = gbufferModelViewInverse * viewPos;
-    vec4 worldPosForShadow = gbufferModelViewInverse * (viewPos + vec4(normal * 0.05 * sqrt(abs(viewPos.z)), 0.0));
 
-    // vec4 blockVector = texture2D(colortex5, texcoord.st);
-    // bool isWater = (blockVector == WATER_FLAG) ? true : false;
+    vec4 viewPosNotWater = gbufferProjectionInverse * vec4(texcoord.st * 2.0 - 1.0, depth1 * 2.0 - 1.0, 1.0);
+    viewPosNotWater /= viewPosNotWater.w;
+    vec4 worldPosNotWaterForShadow = gbufferModelViewInverse * (viewPosNotWater + vec4(normal * 0.05 * sqrt(abs(viewPosNotWater.z)), 0.0));
 
+    vec4 blockVector = texture2D(colortex5, texcoord.st);
+    bool isWater = (blockVector == WATER_FLAG) ? true : false;
+    
     // calculate shadow
-    color.rgb *= calcShadow(worldPosForShadow, normal);
+    // color.rgb *= shadowMapping(worldPosNotWaterForShadow, normal);
     // draw sky
     color.rgb = drawSky(color.rgb, viewPos, worldPos);
     // draw water
-    // if (isWater) {
+    if (isWater) {
     // color.rgb = drawWater(color.rgb, worldPos, viewPos, normal);
-    // }
+    }
     gl_FragData[0] = color;
 }
 #endif
