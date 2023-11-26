@@ -62,21 +62,29 @@ float PerlinWaterNoise(vec2 uv) {
     return nestedNoise(uv * 6.0);
 }
 
+// ============================================================================
+// ========================== Water wave generator ============================
+// return a float value as complex noise
+// ============================================================================
+
 float GetWave(vec4 worldPos) {
-    float speed1 = frameTimeCounter * 45 / (noiseTextureResolution * 15);
+    float speed1 = frameTimeCounter * 45 / (noiseTextureResolution * 7);
     vec3 coord1 = worldPos.xyz / noiseTextureResolution;
     coord1.x *= 3;
     coord1.x += speed1;
     coord1.z += speed1 * 0.2;
     float noise1 = PerlinWaterNoise(coord1.xz);
+    // float noise1 = texture2D(noisetex, coord1.xz).x;
 
     float speed2 = frameTimeCounter * 45 / (noiseTextureResolution * 7);
     vec3 coord2 = worldPos.xyz / noiseTextureResolution;
-    coord2.x *= 3;
+    coord2.x *= 0.1;
     coord2.x -= speed2 * 0.15 + noise1 * 0.05;
     coord2.z -= speed2 * 0.7 - noise1 * 0.05;
-    float noise2 = PerlinWaterNoise(coord2.xz);
+    // float noise2 = PerlinWaterNoise(coord2.xz);
+    float noise2 = texture2D(noisetex, coord2.xz).x;
 
     return noise2 * 0.6 + 0.4;
 }
+
 #endif

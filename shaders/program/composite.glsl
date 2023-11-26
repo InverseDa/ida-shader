@@ -80,6 +80,7 @@ void main() {
         color.rgb = drawWater(color.rgb, worldPos, viewPos, normal);
     }
     float n = PerlinWaterNoise(texcoord.st);
+    // n = texture2D(noisetex, texcoord.st).r;
     gl_FragData[0] = vec4(normal, 1);
     gl_FragData[0] = vec4(color.rgb, 1);
     // gl_FragData[0] = vec4(n, n, n, 1);

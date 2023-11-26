@@ -9,7 +9,7 @@ vec3 drawSky(vec3 color, vec4 viewPos, vec4 worldPos) {
     }
     // draw Moon
     vec3 drawMoon = vec3(0.f);
-    if (dis2Moon < 0.05 && dis > 0.99999) {
+    if (dis2Moon < 0.005 && dis > 0.99999) {
         drawMoon = sunColor * 2 * nightValue;
     }
     // fog with sun color mix

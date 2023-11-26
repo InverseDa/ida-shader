@@ -29,7 +29,7 @@ vec3 drawSkyFakeSunInWater(vec4 viewPos) {
     }
     // draw Moon
     vec3 drawMoon = vec3(0.f);
-    if (dis2Moon < 0.05) {
+    if (dis2Moon < 0.005) {
         drawMoon = sunColor * 2 * nightValue;
     }
     return drawSun + drawMoon;

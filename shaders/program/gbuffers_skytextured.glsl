@@ -13,7 +13,8 @@ in vec4 texcoord;
 void main() {
   // color: the biome color, texture: gray texture color
   // texture * color = RealColor
-  gl_FragData[0] = texture2D(texture, texcoord.st) * color;
+  // 去掉原始太阳和月亮
+  // gl_FragData[0] = texture2D(texture, texcoord.st) * color;
 }
 #endif
 
