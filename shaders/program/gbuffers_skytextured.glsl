@@ -1,4 +1,6 @@
 #include "/lib/constant.glsl"
+#include "/lib/util/functions.glsl"
+#include "/lib/materials/materialData.glsl"
 
 // =============================================================================
 // ============================= Fragment Shader ===============================
@@ -8,13 +10,16 @@ uniform sampler2D texture;
 
 in vec4 color;
 in vec4 texcoord;
+in vec2 normal;
 
-/* DRAWBUFFERS:0 */
+/* DRAWBUFFERS:025 */
 void main() {
   // color: the biome color, texture: gray texture color
   // texture * color = RealColor
   // 去掉原始太阳和月亮
-  // gl_FragData[0] = texture2D(texture, texcoord.st) * color;
+  gl_FragData[0] = vec4(0.0);
+  gl_FragData[1] = vec4(normal, 0.0, 1.0);
+  gl_FragData[2] = getSkyMaterialData();
 }
 #endif
 
@@ -24,7 +29,7 @@ void main() {
 #ifdef VERTEX_SHADER
 out vec4 color;
 out vec4 texcoord;
-out vec3 normal;
+out vec2 normal;
 
 void main() {
   // position in camera(steve)
@@ -33,6 +38,7 @@ void main() {
 
   color = gl_Color;
   texcoord = gl_TextureMatrix[0] * gl_MultiTexCoord0;
+  normal = normalEncode(gl_NormalMatrix * gl_Normal);
 
 }
 #endif

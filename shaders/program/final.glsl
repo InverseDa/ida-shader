@@ -5,13 +5,11 @@
 // =====================================================================================
 #ifdef FRAGMENT_SHADER
 uniform sampler2D colortex0; // color
-uniform sampler2D colortex1; // depth
-uniform sampler2D colortex2; // normal
-uniform sampler2D colortex5; // block
-uniform sampler2D depthtex0; // depth0
-uniform sampler2D depthtex1; // depth1
+uniform sampler2D colortex7; // bloom
 
 in vec4 texcoord;
+
+const float BLOOM_INTENSITY = 0.66;
 
 vec3 ACESToneMapping(vec3 color, float adapted_lum) {
     const float A = 2.51f;
@@ -28,10 +26,27 @@ vec3 saturation(vec3 color, float factor) {
     return mix(vec3(brightness), color, factor);
 }
 
+vec3 contrast(vec3 color, float factor) {
+    return (color - 0.5) * factor + 0.5;
+}
+
+vec3 vibrance(vec3 color, float strength) {
+    float maxChannel = max(color.r, max(color.g, color.b));
+    float minChannel = min(color.r, min(color.g, color.b));
+    float chroma = maxChannel - minChannel;
+    float boost = (1.0 - clamp(chroma, 0.0, 1.0)) * strength;
+    return saturation(color, 1.0 + boost);
+}
+
 void main() {
     vec4 color = texture2D(colortex0, texcoord.st);
-    color.rgb = ACESToneMapping(color.rgb, 1.0);
-    color.rgb = saturation(color.rgb, 1.45);
+    vec3 bloom = texture2D(colortex7, texcoord.st).rgb;
+    color.rgb += bloom * BLOOM_INTENSITY;
+    color.rgb = ACESToneMapping(color.rgb, 0.92);
+    color.rgb = contrast(color.rgb, 1.03);
+    color.rgb = vibrance(color.rgb, 0.12);
+    color.rgb = saturation(color.rgb, 1.0);
+    color.rgb = clamp(color.rgb, 0.0, 1.0);
     gl_FragData[0] = color;
 }
 #endif

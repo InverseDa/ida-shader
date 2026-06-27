@@ -1,5 +1,7 @@
 #include "/lib/constant.glsl"
 #include "/lib/util/functions.glsl"
+#include "/lib/materials/materialData.glsl"
+#include "/lib/materials/pbr.glsl"
 
 // =============================================================================
 // ============================= Fragment Shader ===============================
@@ -21,18 +23,25 @@ in vec4 viewPos;
 void main() {
     vec4 light = texture2D(lightmap, lmcoord.st);
     vec4 oColor = color;
-    vec4 waterFlag = vec4(1.0);
-    if (mat != 10092) {
+    float entityId = float(mat);
+    vec4 materialData = getTranslucentMaterialData(entityId);
+    vec2 packedNormal = normal;
+    if (isIceEntityId(entityId)) {
         oColor = texture2D(texture, texcoord.st) * light * color;
-    } else {
-        // is water
+        oColor.a = 1.0;
+        vec3 geometryNormal = normalDecode(normal);
+        PbrMaterialSample pbr = samplePbrMaterial(texcoord.st, geometryNormal, viewPos.xyz, materialData);
+        packedNormal = normalEncode(pbr.normalView);
+        materialData = pbr.materialData;
+    } else if (isWaterEntityId(entityId)) {
         oColor = vec4(vec3(0.1, 0.2, 0.4), 0.5);
-        waterFlag = WATER_FLAG;
+    } else {
+        oColor = texture2D(texture, texcoord.st) * light * color;
     }
     /* DRAWBUFFERS:025 */
     gl_FragData[0] = oColor;
-    gl_FragData[1] = vec4(normal, 0.0, 1.0);
-    gl_FragData[2] = waterFlag;
+    gl_FragData[1] = vec4(packedNormal, 0.0, 1.0);
+    gl_FragData[2] = materialData;
 }
 #endif
 
@@ -69,10 +78,8 @@ out vec4 viewPos;
 // #endif
 
 void main() {
-    // 对水计算
     mat = int(mc_Entity.x);
-    viewPos = (mat == 10092) ? gbufferModelView * gl_Vertex
-                             : gbufferModelView * gl_Vertex;
+    viewPos = gbufferModelView * gl_Vertex;
     color = gl_Color;
     normal = normalEncode(gl_NormalMatrix * gl_Normal);
     gl_Position = gbufferProjection * viewPos;

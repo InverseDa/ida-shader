@@ -1,4 +1,6 @@
 #include "/lib/constant.glsl"
+#include "/lib/util/functions.glsl"
+#include "/lib/materials/materialData.glsl"
 
 // =============================================================================
 // ============================= Fragment Shader ===============================
@@ -10,24 +12,15 @@ uniform int fogMode;
 in vec4 color;
 in vec4 texcoord;
 in float vertexToCameraDistance;
+in vec2 normal;
 
-/* DRAWBUFFERS:0 */
+/* DRAWBUFFERS:025 */
 void main() {
   // color: the biome color, texture: gray texture color
   // texture * color = RealColor
   gl_FragData[0] = texture2D(texture, texcoord.st) * color;
-  // 9729 - linear fog
-  // 2048 - exp fog
-  if (fogMode == 9729)
-    gl_FragData[0].rgb = mix(gl_Fog.color.rgb, gl_FragData[0].rgb,
-                             clamp((gl_Fog.end - vertexToCameraDistance) /
-                                       (gl_Fog.end - gl_Fog.start),
-                                   0.0, 1.0));
-  else if (fogMode == 2048) {
-    gl_FragData[0].rgb =
-        mix(gl_Fog.color.rgb, gl_FragData[0].rgb,
-            clamp(exp(-vertexToCameraDistance * gl_Fog.density), 0.0, 1.0));
-  }
+  gl_FragData[1] = vec4(normal, 0.0, 1.0);
+  gl_FragData[2] = getSkyMaterialData();
 }
 #endif
 
@@ -38,7 +31,7 @@ void main() {
 out vec4 color;
 out vec4 texcoord;
 out float vertexToCameraDistance;
-out vec3 normal;
+out vec2 normal;
 
 void main() {
   // position in camera(steve)
@@ -49,5 +42,6 @@ void main() {
 
   color = gl_Color;
   texcoord = gl_TextureMatrix[0] * gl_MultiTexCoord0;
+  normal = normalEncode(gl_NormalMatrix * gl_Normal);
 }
 #endif

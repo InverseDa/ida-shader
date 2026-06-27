@@ -1,5 +1,6 @@
 #include "/lib/constant.glsl"
 #include "/lib/util/functions.glsl"
+#include "/lib/materials/materialData.glsl"
 
 // =============================================================================
 // ============================= Fragment Shader ===============================
@@ -13,6 +14,7 @@ const int gnormalFormat = RG16;
 
 uniform mat4 gbufferProjection;
 uniform mat4 gbufferProjectionInverse;
+uniform mat4 gbufferModelView;
 uniform mat4 gbufferModelViewInverse;
 uniform mat4 shadowModelView;
 uniform mat4 shadowProjection;
@@ -38,14 +40,72 @@ in vec3 skyColor;
 in vec3 sunColor;
 in float nightValue;
 
+float getNoonLightFactor() {
+    float dayDistance = abs(float(worldTime) - 6000.0) / 6000.0;
+    return 1.0 - smoothstep(0.0, 1.0, clamp(dayDistance, 0.0, 1.0));
+}
+
 // ========================== Draw Shadow ==========================
-#include "/lib/materials/lighting/shadowSample.glsl"
+#include "/lib/lighting/shadow.glsl"
+
+// ===================== Ambient Occlusion =====================
+#include "/lib/lighting/ssao.glsl"
 
 // ========================== Draw Sky ==========================
 #include "/lib/materials/lighting/sky.glsl"
 
+// ======================== Surface Light ========================
+#include "/lib/lighting/surface.glsl"
+
 // ========================== Draw Water ==========================
 #include "/lib/materials/translucents/water.glsl"
+
+vec3 applySunDirectLight(
+    vec3 color,
+    vec3 normal,
+    vec3 viewPos,
+    vec4 materialData,
+    float shadow,
+    float ssao
+) {
+    MaterialLightingProfile profile = getMaterialLightingProfile(materialData);
+    vec3 surfaceNormal = normalize(normal);
+    vec3 viewDir = normalize(-viewPos);
+    vec3 lightDir = normalize(sunPosition);
+    float noL = max(dot(surfaceNormal, lightDir), 0.0);
+    float daylight = 1.0 - nightValue;
+    float noonLight = getNoonLightFactor();
+    float sunExposure = smoothstep(0.02, 0.55, noL) * shadow * daylight;
+    float sunlightStrength = mix(0.82, 1.32, noonLight) * daylight;
+
+    float roughness = adjustMaterialRoughness(materialData, getMaterialRoughness(materialData));
+    float metallic = getMaterialMetallic(materialData);
+    float materialAo = getMaterialAO(materialData) * ssao;
+    vec3 skyReflection = getSkyRadiance(reflect(-viewDir, surfaceNormal));
+    vec3 lightRadiance = getDirectionalLightRadiance(sunColor, nightValue) * sunlightStrength;
+    SurfaceLightingResult lighting = evaluateSurfaceLighting(
+        color,
+        surfaceNormal,
+        viewDir,
+        lightDir,
+        lightRadiance,
+        skyColor,
+        skyReflection,
+        roughness,
+        metallic,
+        materialAo,
+        shadow,
+        profile
+    );
+
+    float shadowTone = mix(0.68, 1.0, smoothstep(0.02, 1.0, shadow));
+    float aoTone = mix(0.86, 1.0, ssao);
+    vec3 baseLight = color * shadowTone * aoTone * mix(0.96, 1.08, noonLight);
+    vec3 indirectFloor = color * skyColor * (0.10 + 0.08 * noonLight) * materialAo * profile.ambientScale;
+    vec3 pbrLight = lighting.direct * (0.18 + 0.42 * sunExposure) + lighting.ambient * 1.55;
+    vec3 emission = color * profile.emissionStrength;
+    return baseLight + pbrLight + indirectFloor + emission;
+}
 
 // ============================== MAIN ==============================
 /* DRAWBUFFERS:0 */
@@ -58,30 +118,36 @@ void main() {
 
     vec4 color = texture2D(colortex0, texcoord.st);
     vec3 normal = normalDecode(texture2D(colortex2, texcoord.st).rg);
+    vec4 materialData = texture2D(colortex5, texcoord.st);
+    if (dot(materialData, materialData) < 0.0001) {
+        materialData = getDefaultMaterialData();
+    }
 
-    vec4 viewPos = gbufferProjectionInverse * vec4(texcoord.st * 2.0 - 1.0, depth0 * 2.0 - 1.0, 1.0);
-    viewPos /= viewPos.w;
-    vec4 worldPos = gbufferModelViewInverse * viewPos;
+    vec3 viewPos = reconstructViewPos(texcoord.st, depth0, gbufferProjectionInverse);
+    vec3 worldPos = viewToWorldPos(viewPos, gbufferModelViewInverse);
 
-    vec4 viewPosNotWater = gbufferProjectionInverse * vec4(texcoord.st * 2.0 - 1.0, depth1 * 2.0 - 1.0, 1.0);
-    viewPosNotWater /= viewPosNotWater.w;
-    vec4 worldPosNotWaterForShadow = gbufferModelViewInverse * viewPosNotWater;
+    vec3 viewPosNotWater = reconstructViewPos(texcoord.st, depth1, gbufferProjectionInverse);
+    vec3 worldPosNotWaterForShadow = viewToWorldPos(viewPosNotWater, gbufferModelViewInverse);
 
-    vec4 blockVector = texture2D(colortex5, texcoord.st);
-    bool isWater = (blockVector == WATER_FLAG) ? true : false;
+    bool isWater = isMaterial(materialData, MATERIAL_ID_WATER);
+    bool isIce = isMaterial(materialData, MATERIAL_ID_ICE);
+    bool isSky = isMaterial(materialData, MATERIAL_ID_SKY);
+    float ssao = (!isSky && !isWater) ? getScreenSpaceAmbientOcclusion(texcoord.st, viewPosNotWater, normal) : 1.0;
     
     // calculate shadow
     float underWaterShadowFadeOut = UnderWaterFadeOut(depth0, depth1, viewPos, normal); // what it looks like the water shadow (not in water)
-    color.rgb *= shadowMapping(worldPosNotWaterForShadow, normal, underWaterShadowFadeOut);
+    float shadow = (!isSky && !isWater) ? shadowMapping(worldPosNotWaterForShadow, normal, underWaterShadowFadeOut) : 1.0;
+    if (!isSky && !isWater) {
+        color.rgb = applySunDirectLight(color.rgb, normal, viewPosNotWater, materialData, shadow, ssao);
+    }
     // draw sky
-    color.rgb = drawSky(color.rgb, viewPos, worldPos);
+    color.rgb = drawSky(color.rgb, viewPos, isSky);
     // draw water
     if (isWater) {
-        color.rgb = drawWater(color.rgb, worldPos, viewPos, normal);
+        color.rgb = drawWater(color.rgb, worldPos, viewPos, viewPosNotWater, normal);
+    } else if (isIce) {
+        color.rgb = drawIce(color.rgb, worldPos, viewPos, normal);
     }
-    float n = PerlinWaterNoise(texcoord.st);
-    // n = texture2D(noisetex, texcoord.st).r;
-    gl_FragData[0] = vec4(normal, 1);
     gl_FragData[0] = vec4(color.rgb, 1);
     // gl_FragData[0] = vec4(n, n, n, 1);
 }
