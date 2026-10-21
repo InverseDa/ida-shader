@@ -13,7 +13,7 @@ in vec4 texcoord;
 /* RENDERTARGETS: 0,11 */
 void main() {
     vec2 uv = texcoord.st;
-    vec4 snapshot = texture2D(colortex4, uv);
+    vec4 snapshot = fetchOpaqueData(ivec2(gl_FragCoord.xy));
     vec4 material = texture2D(colortex5, uv);
     vec3 color = texture2D(colortex9, uv).rgb;
     bool isHand = isMaterial(material, MATERIAL_ID_HAND);

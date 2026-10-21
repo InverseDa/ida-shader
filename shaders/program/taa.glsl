@@ -22,11 +22,13 @@ uniform float viewWidth;
 uniform float viewHeight;
 uniform int frameCounter;
 uniform int isEyeInWater;
+#include "/lib/common/opaque_snapshot.glsl"
+#include "/lib/post/spatial_aa.glsl"
+#include "/lib/post/reactive.glsl"
 
 in vec4 texcoord;
 
-vec2 getPreviousFrameUv(vec2 uv, float depth, out float previousDepth) {
-    vec3 viewPos = reconstructViewPos(uv - getTaaJitterNdc(frameCounter, vec2(viewWidth, viewHeight)) * 0.5, depth, gbufferProjectionInverse);
+vec2 getPreviousFrameUv(vec3 viewPos, out float previousDepth) {
     vec3 cameraRelativeWorld = viewToWorldPos(viewPos, gbufferModelViewInverse);
     vec3 previousRelativeWorld = cameraRelativeWorld + (cameraPosition - previousCameraPosition);
     vec3 previousView = worldToViewPos(previousRelativeWorld, gbufferPreviousModelView);
@@ -37,14 +39,15 @@ vec2 getPreviousFrameUv(vec2 uv, float depth, out float previousDepth) {
     return previousScreen.xy + previousJitter;
 }
 
-vec3 clampHistoryToNeighborhood(vec2 uv, vec3 historyColor) {
-    vec2 texel = 1.0 / vec2(viewWidth, viewHeight);
-    vec3 minimumColor = vec3(99999.0);
-    vec3 maximumColor = vec3(-99999.0);
+vec3 clampHistoryToNeighborhood(ivec2 pixel, vec3 center, vec3 historyColor) {
+    ivec2 size = textureSize(colortex0, 0);
+    vec3 minimumColor = center;
+    vec3 maximumColor = center;
 
     for (int y = -1; y <= 1; y++) {
         for (int x = -1; x <= 1; x++) {
-            vec3 sampleColor = texture2D(colortex0, clamp(uv + vec2(x, y) * texel, vec2(0.001), vec2(0.999))).rgb;
+            if (x == 0 && y == 0) continue;
+            vec3 sampleColor = texelFetch(colortex0, clamp(pixel + ivec2(x, y), ivec2(0), size - 1), 0).rgb;
             minimumColor = min(minimumColor, sampleColor);
             maximumColor = max(maximumColor, sampleColor);
         }
@@ -57,21 +60,25 @@ vec3 clampHistoryToNeighborhood(vec2 uv, vec3 historyColor) {
 /* DRAWBUFFERS:08 */
 void main() {
     vec2 uv = texcoord.st;
-    vec3 currentColor = texture2D(colortex0, uv).rgb;
-    vec4 opaque = texelFetch(colortex4, ivec2(gl_FragCoord.xy), 0);
+    ivec2 pixel = ivec2(gl_FragCoord.xy);
+    vec3 currentColor = texelFetch(colortex0, pixel, 0).rgb;
+    bool reactive = hasReactiveCoverage(pixel);
+    vec4 opaque = vec4(0.0, 0.0, 1.0, 0.0);
+    if (!reactive) opaque = fetchOpaqueData(pixel);
     float depth = opaque.b;
-    // The dilated mask includes every transparent layer, even color-only rain
-    // and particles. Opaque material/depth buffers are never overwritten by them.
-    bool stable = opaque.a > 1.5 && texture2D(colortex10, uv).r < 0.001;
+    // Fuse mask dilation, spatial AA and temporal resolve in one full-screen
+    // pass. Reactive pixels never read history or reconstruct opaque depth.
+    bool stable = opaque.a > 1.5 && !reactive;
     vec2 jitter = getTaaJitterNdc(frameCounter, vec2(viewWidth, viewHeight)) * 0.5;
-    float viewDepth = -reconstructViewPos(uv - jitter, depth, gbufferProjectionInverse).z;
+    vec3 viewPos = stable ? reconstructViewPos(uv - jitter, depth, gbufferProjectionInverse) : vec3(0.0);
+    float viewDepth = -viewPos.z;
     // Linear FP16 depth has <0.05% relative rounding error, below the 1%
     // history tolerance. Reject out-of-range depth instead of storing infinity.
     bool validSurface = stable && depth < 0.999999 && viewDepth > 0.0 && viewDepth <= 65504.0;
-    vec3 resolvedColor = currentColor;
+    vec3 resolvedColor = reactive ? resolveSpatialAa(uv, currentColor) : currentColor;
     if (frameCounter > 1 && validSurface && length(cameraPosition - previousCameraPosition) < 8.0) {
         float previousDepth;
-        vec2 previousUv = getPreviousFrameUv(uv, depth, previousDepth);
+        vec2 previousUv = getPreviousFrameUv(viewPos, previousDepth);
         if (isScreenUvInRange(previousUv)) {
             vec2 historyPosition = previousUv * vec2(textureSize(colortex8, 0)) - 0.5;
             ivec2 origin = ivec2(floor(historyPosition));
@@ -91,12 +98,15 @@ void main() {
                     }
                 }
             }
-            historyColor /= max(validWeight, 0.0001);
-            historyColor = clampHistoryToNeighborhood(uv, historyColor);
-            float motion = length(previousUv - uv) * max(viewWidth, viewHeight);
-            float historyWeight = mix(0.88, 0.54, clamp(motion * 0.035, 0.0, 1.0));
-            bool depthMatches = validWeight > 0.5;
-            resolvedColor = mix(currentColor, historyColor, depthMatches ? historyWeight : 0.0);
+            if (validWeight > 0.5) {
+                historyColor /= validWeight;
+                // Bound history using the unfiltered current frame. Dynamic
+                // pixels use spatial AA independently and never accumulate it.
+                historyColor = clampHistoryToNeighborhood(pixel, currentColor, historyColor);
+                float motion = length(previousUv - uv) * max(viewWidth, viewHeight);
+                float historyWeight = mix(0.88, 0.54, clamp(motion * 0.035, 0.0, 1.0));
+                resolvedColor = mix(currentColor, historyColor, historyWeight);
+            }
         }
     }
 

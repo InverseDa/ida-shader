@@ -26,10 +26,8 @@ The current implementation targets the Overworld on Iris. It requires
    These passes only write color (0) and an additive temporal rejection mask (10),
    preserving opaque normals/materials/depth. Particles use `particles.ordering=mixed`:
    opaque particles enter deferred, translucent particles and rain use forward shading.
-6. `composite`: expands the rejection mask by one pixel and applies a directional
-   spatial AA filter to dynamic/transparent edges. It does not relight, shade
-   water, or apply atmosphere to the combined image.
-7. `composite1`: TAA with current/previous jitter compensation and depth-validated
+6. `composite`: fused one-pixel reactive-mask expansion, directional spatial AA,
+   and TAA with current/previous jitter compensation and depth-validated
    history taps for static surfaces. Hand, foliage, dynamic entities/block entities,
    particles, water, ice and sky use spatial AA instead. These dedicated geometry
    paths do not jitter. Covered pixels and their immediate neighbors reject history,
@@ -37,21 +35,23 @@ The current implementation targets the Overworld on Iris. It requires
    in air, negative in water, and zero when invalid. Crossing the water surface
    rejects history from the other medium. Resolved color writes back to the
    colortex0 ping-pong pair; history uses RGBA16F with finite-range protection.
-8. `composite2/3`: half-resolution Bloom extraction/filtering.
-9. `final`: combine linear HDR color and Bloom, tone-map, then encode sRGB.
+   No separate `composite1` pass is needed. This pass does not relight surfaces
+   or apply atmosphere to the combined image.
+7. `composite2/3`: half-resolution Bloom extraction/filtering.
+8. `final`: combine linear HDR color and Bloom, tone-map, then encode sRGB.
 
 | Attachment | Meaning | Writer |
 | --- | --- | --- |
-| colortex0 | Linear albedo, then atmospheric scene, then forward/spatial-AA/TAA result, RGB16F | Geometry, deferred1, composite, composite1 |
+| colortex0 | Linear albedo, then atmospheric scene, then forward/spatial-AA/TAA result, RGB16F | Geometry, deferred1, composite |
 | colortex1 | Early effects: premultiplied HDR radiance RGB and opacity A (additive emission uses A=0), RGBA16F | Effect draws; opaque hand clears covered pixels |
 | colortex2 | Opaque surface octahedral normal, RG16 | Opaque geometry |
 | colortex3 | Effect view depth, R16F | Effect draws |
-| colortex4 | Opaque normal RG, hardware depth B; A=0 before deferred, A=1 unjittered / A=2 jittered afterwards; RGBA32F; hand depth is invalidated | deferred only |
+| colortex4 | Packed 12+12-bit octahedral normal and readiness/jitter sign in R, unchanged FP32 hardware depth in G; RG32F; hand depth is invalidated | deferred only |
 | colortex5 | Opaque roughness, metallic, AO, material ID / 255 | Opaque geometry |
 | colortex6/7 | Half-resolution Bloom, R11F_G11F_B10F | composite2/3 |
-| colortex8 | History RGB plus medium-tagged linear depth A: positive air / negative water / zero invalid, RGBA16F; retained across frames | composite1 |
+| colortex8 | History RGB plus medium-tagged linear depth A: positive air / negative water / zero invalid, RGBA16F; retained across frames | composite |
 | colortex9 | Linear vanilla lightmap before deferred; immutable raw opaque radiance afterwards, RGB16F | Opaque geometry, then deferred |
-| colortex10 | Temporal rejection mask, R8; effect/transparent coverage accumulates, then expands at silhouettes | Effects, deferred, translucent geometry, composite |
+| colortex10 | Temporal rejection mask, R8; effect/transparent coverage accumulates; composite evaluates expanded coverage without writing another mask | Effects, deferred, translucent geometry |
 | colortex11 | Immutable opaque scene after ice reflections and atmosphere, excluding early effect layers, RGB16F | deferred1 only |
 
 The forward passes read snapshots 4/9/11 only. In particular, a gbuffers shader
@@ -139,7 +139,34 @@ TAA now reuses color buffer 0, reducing effect-depth buffer 3 from RGB16F to
 R16F. The linear-depth history in buffer 8 uses RGBA16F; its rounding error is
 below 0.05% over 0.05–65504 blocks, compared with the existing 1% depth tolerance.
 Out-of-range depths reject temporal history, and history color is bounded to
-the finite FP16 range. Hardware depth and normal snapshots remain RGBA32F.
+the finite FP16 range.
+
+The opaque snapshot now uses RG32F: G retains the original hardware depth bit
+for bit, while R stores an exact integer payload for two 12-bit octahedral
+normal coordinates. Adding one reserves zero for "not ready"; the sign selects
+the jitter convention. The largest magnitude is 2^24, representable exactly in
+FP32. All reads go through `opaque_snapshot.glsl` with `texelFetch`; interpolating
+the packed payload is forbidden. Main surface lighting still uses the original
+RG16 normals. Snapshot normal precision is reduced only for reflection consumers;
+30,000 sampled directions show a maximum angular change of 0.05821 degrees.
+
+Spatial AA and TAA now share one full-screen pass. One-pixel mask expansion is
+evaluated locally; already-reactive pixels need one mask tap instead of nine,
+and skip opaque reconstruction/history reads. TAA clamps to the unfiltered
+current neighborhood, using exact edge-clamped texel coordinates; the old fixed
+0.001 UV inset incorrectly skipped several edge pixels at high resolutions.
+Invalid history skips neighborhood filtering entirely, and valid reprojection
+reuses the view position already reconstructed for depth validation. Removing
+the intermediate color/mask pass avoids one full-screen RGB16F + R8 write and
+subsequent read (14 logical bytes per pixel; actual bandwidth depends on caching).
+
+Cloud density rejects out-of-layer samples before noise fetches, and skips finer
+noise octaves when their upper bound cannot reach the existing coverage threshold.
+Emission attenuation traces the same cloud opacity without computing cloud color
+or self-shadow samples. Full cloud lighting computes its ray-constant phase term
+once; the 12 steps, density shape and opacity termination are unchanged. The
+underwater water path also skips the redundant air-side background lookup.
+
 Bloom alone uses packed unsigned HDR; scene color, lightmaps and reflection
 sources retain RGB16F. Packed Bloom has lower color precision and should be
 checked on dim colored glows. These formats are supported by the installed
@@ -155,12 +182,12 @@ snapshot readiness flag still clear each frame.
 
 Logical color-target storage, including both textures per Iris ping-pong pair:
 
-| Resolution | Before this optimization | After | Saved |
-| --- | ---: | ---: | ---: |
-| 1920×1080 | 324.32 MiB | 249.17 MiB | 75.15 MiB |
-| 2560×1440 | 576.56 MiB | 442.97 MiB | 133.59 MiB |
-| 3840×2160 | 1297.27 MiB | 996.68 MiB | 300.59 MiB |
-| 5120×2739 | 2193.31 MiB | 1685.11 MiB | 508.20 MiB |
+| Resolution | Before memory work | Previous round | Current | Saved this round |
+| --- | ---: | ---: | ---: | ---: |
+| 1920×1080 | 324.32 MiB | 249.17 MiB | 217.53 MiB | 31.64 MiB |
+| 2560×1440 | 576.56 MiB | 442.97 MiB | 386.72 MiB | 56.25 MiB |
+| 3840×2160 | 1297.27 MiB | 996.68 MiB | 870.12 MiB | 126.56 MiB |
+| 5120×2739 | 2193.31 MiB | 1685.11 MiB | 1471.12 MiB | 213.98 MiB |
 
 These are format-based estimates, not measured GPU residency: driver padding or
 compression, depth/shadow targets, texture atlases and Minecraft memory are
@@ -188,6 +215,9 @@ reuse. FP16 tests cover every depth interval in range; reflection tests check
 zero-mask rejection boundaries and compare the actual cached-fetch helper with
 the original two-fetch lookup over 2,928 probes (eight jitter phases, mixed
 static/dynamic texels, three sizes and viewport boundaries). The validator
+also checks 49,152 signed snapshot round trips, bit-exact hardware depth,
+sampled normal quantization error, all 512 reactive neighborhoods at nine pixel
+positions, and 20,000 cloud-noise bounds. The validator
 supplies Iris 1.8.8 hand/outline stage macros so those branches
 are compiled as well.
 Expanded files remain in the scratch directory
@@ -228,6 +258,10 @@ In-game acceptance checks:
   Check dark colored Bloom, resize to an odd height, and test lightning behind
   water to catch buffer-lifetime mistakes. Measure GPU frame time and memory
   after warm-up; an offline sample count is not an FPS result.
+- Inspect fine normal maps on ice and shore reflections after snapshot packing;
+  camera motion should not introduce new normal-stepping artifacts. Check the
+  outermost screen pixels and static terrain next to moving mobs after AA fusion.
+  Compare clouds from below/inside/above, including glint and eyes behind clouds.
 
 ## Remaining limitations
 
@@ -253,9 +287,32 @@ previously unimplemented effects have not been added. Offline checks cannot esta
 GPU frame time. The fogged snapshot, R8 mask, early RGBA16F effect layer and
 opaque-atmosphere pass cost memory/bandwidth. TAA reuses scene color, and raw
 opaque radiance reuses the consumed lightmap pair; phase detection reuses the
-opaque snapshot's alpha. Buffer 4 retains full-precision hardware depth and is
-still a substantial memory cost at high resolutions.
+packed snapshot sentinel. Buffer 4 retains full-precision hardware depth in
+half the former storage; further precision/resolution cuts need visual targets
+and in-game profiling.
 Cloud rays skip segments outside the layer and terminate above
 99.5% opacity; zero-weight reflection candidates skip their five HDR color taps.
 The net performance change needs in-game GPU timing, especially inside clouds or
 with heavy transparent overdraw.
+
+## Roadmap checkpoint and effect alignment
+
+基础修复已进入实测收尾阶段。已完成的代码检查不等于游戏画面验收；当前优先
+确认水面/冰面、动态物体边缘、特殊效果和窗口重载没有回退，并在相同视角、
+分辨率、天气、视距下记录稳定后的 GPU 帧时间和显存，再判断下一处瓶颈。
+后续更大幅度的开销削减通常涉及降分辨率、减少采样或改变效果实现，需要与
+画面目标一起确定。现阶段不预设继续降低云、反射、阴影或 Bloom 的质量。
+
+下面是用于下一轮讨论的清单；“候选”尚未作为承诺实现的新需求。
+
+| 效果方向 | 当前基础 / 老效果待优化 | 新效果候选 / 需要对齐的取舍 |
+| --- | --- | --- |
+| 光照与材质 | 线性 Lightmap、简化 PBR、阴影和 SSAO；需对齐昼夜与洞穴观感 | LabPBR、自发光材质、透光/次表面效果；确定资源包与目标亮度 |
+| 天空与云雾 | 程序天空、体积云、距离雾；云内和大量透明物体仍需计时 | 地表云影、体积光、天气过渡；确定风格与可接受的体积采样预算 |
+| 水与反射 | 波纹法线、折射、水下吸收、屏幕空间反射；离屏和多层透明仍有限制 | 几何波浪、泡沫、焦散、离屏反射补偿；确定优先场景 |
+| 抗锯齿与稳定性 | 静态 TAA、动态空间 AA；无物体运动向量，细高光仍可能闪烁 | 动态时域积累、材质高光抗闪烁；确定拖影与锐度容忍度 |
+| 后期与颜色 | Bloom、固定曝光和色调映射；需实际画面校色 | 自动曝光、可配置调色；确定亮暗适应和默认色彩基准 |
+| 环境与兼容性 | 主世界、水下和已列出的特殊绘制路径 | 下界/末地、熔岩/细雪、更多状态效果；先确定覆盖范围 |
+
+对齐时建议明确：参考画面与使用场景、必做/可选优先级、目标分辨率和帧时间预算、
+默认质量与可降低的项目。由这些约束决定下一阶段实现顺序和老效果的重构范围。

@@ -29,14 +29,14 @@ void main() {
     vec3 shaded;
     float alpha = base.a;
     if (isWaterEntityId(float(mat))) {
-        vec2 opaqueUv = opaqueUvForUnjitteredUv(screenUv);
-        vec4 opaque = sampleOpaqueData(opaqueUv);
-        vec3 behind = reconstructOpaqueViewPos(opaqueUv, opaque);
         float transmission;
         if (isEyeInWater == 1) {
             shaded = drawUnderwaterSurface(worldPos, viewPos.xyz, surfaceNormal,
                                           screenUv, gl_FragCoord.z, transmission);
         } else {
+            vec2 opaqueUv = opaqueUvForUnjitteredUv(screenUv);
+            vec4 opaque = sampleOpaqueData(opaqueUv);
+            vec3 behind = reconstructOpaqueViewPos(opaqueUv, opaque);
             shaded = drawWater(vec3(0.1, 0.2, 0.4), worldPos, viewPos.xyz, behind,
                                surfaceNormal, screenUv, gl_FragCoord.z, transmission);
         }

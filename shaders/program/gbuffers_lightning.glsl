@@ -12,7 +12,7 @@ void main() {
     // Lightning writes geometry depth in Iris. Give that geometry matching,
     // explicitly unlit metadata instead of interpreting stale terrain normals.
     vec3 radiance = srgbToLinear(color.rgb);
-    if (texelFetch(colortex4, ivec2(0), 0).a > 0.5)
+    if (opaqueSnapshotReady())
         radiance = applyAtmosphere(radiance, viewPos, false);
     gl_FragData[0] = vec4(radiance, 1.0);
     gl_FragData[1] = vec4(normalEncode(vec3(0.0, 0.0, 1.0)), 0.0, 1.0);

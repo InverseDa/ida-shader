@@ -6,15 +6,20 @@ float sampleAtmosphereNoise(vec2 uv) {
 }
 
 float getCloudLayerDensity(vec3 absolutePos) {
+    float bottomFade = smoothstep(168.0, 196.0, absolutePos.y);
+    float topFade = 1.0 - smoothstep(248.0, 286.0, absolutePos.y);
+    if (bottomFade * topFade <= 0.0) return 0.0;
     vec2 wind = vec2(frameTimeCounter * 0.0035, frameTimeCounter * 0.0016);
     vec2 baseUv = absolutePos.xz * 0.00072 + wind;
     float base = sampleAtmosphereNoise(baseUv);
+    // Noise is normalized [0,1]. Skip remaining octaves when even their
+    // maximum contribution cannot reach the cloud coverage threshold.
+    if (base * 0.62 + 0.38 <= 0.54) return 0.0;
     float detail = sampleAtmosphereNoise(absolutePos.xz * 0.0028 - wind * 1.7);
+    if (base * 0.62 + detail * 0.28 + 0.10 <= 0.54) return 0.0;
     float wisps = sampleAtmosphereNoise(absolutePos.xz * 0.0080 + wind * 3.2);
     float cloudShape = base * 0.62 + detail * 0.28 + wisps * 0.10;
 
-    float bottomFade = smoothstep(168.0, 196.0, absolutePos.y);
-    float topFade = 1.0 - smoothstep(248.0, 286.0, absolutePos.y);
     float horizonBreakup = smoothstep(0.54, 0.88, cloudShape);
     return clamp(horizonBreakup * bottomFade * topFade, 0.0, 1.0);
 }
@@ -24,7 +29,7 @@ float getCloudShadow(vec3 absolutePos, vec3 lightDir) {
     return mix(1.0, 0.58, upper);
 }
 
-vec4 renderVolumetricClouds(vec3 originWorld, vec3 rayDir, float maxDistance) {
+vec4 renderVolumetricClouds(vec3 originWorld, vec3 rayDir, float maxDistance, bool needColor) {
     float lowerHeight = 168.0;
     float upperHeight = 286.0;
     float t0 = 0.0;
@@ -41,9 +46,16 @@ vec4 renderVolumetricClouds(vec3 originWorld, vec3 rayDir, float maxDistance) {
         return vec4(0.0);
     }
 
-    vec3 lightDir = viewToWorldNormal(normalize(shadowLightPosition), gbufferModelViewInverse);
-    vec3 cloudLight = mix(vec3(0.18, 0.24, 0.36), sunColor, 1.0 - nightValue);
-    vec3 ambient = skyColor * mix(0.34, 0.58, 1.0 - nightValue);
+    vec3 lightDir = vec3(0.0);
+    vec3 cloudLight = vec3(0.0);
+    vec3 ambient = vec3(0.0);
+    if (needColor) {
+        lightDir = viewToWorldNormal(normalize(shadowLightPosition), gbufferModelViewInverse);
+        float sunFacing = clamp(dot(rayDir, lightDir) * 0.5 + 0.5, 0.0, 1.0);
+        cloudLight = mix(vec3(0.18, 0.24, 0.36), sunColor, 1.0 - nightValue) *
+                     mix(0.24, 0.92, sunFacing * sunFacing);
+        ambient = skyColor * mix(0.34, 0.58, 1.0 - nightValue);
+    }
     vec3 accumulated = vec3(0.0);
     float alpha = 0.0;
     float travel = endDistance - startDistance;
@@ -55,11 +67,12 @@ vec4 renderVolumetricClouds(vec3 originWorld, vec3 rayDir, float maxDistance) {
         vec3 absolutePos = originWorld + rayDir * t;
         float density = getCloudLayerDensity(absolutePos);
         if (density > 0.001) {
-            float sunFacing = clamp(dot(rayDir, lightDir) * 0.5 + 0.5, 0.0, 1.0);
-            float lightVisibility = getCloudShadow(absolutePos, lightDir);
-            vec3 cloudColor = ambient + cloudLight * lightVisibility * mix(0.24, 0.92, pow(sunFacing, 2.0));
             float stepAlpha = (1.0 - exp(-density * 0.006 * travel / 12.0)) * (1.0 - alpha);
-            accumulated += cloudColor * stepAlpha;
+            // Emissive overlays only need transmission, not lit cloud color.
+            if (needColor) {
+                float lightVisibility = getCloudShadow(absolutePos, lightDir);
+                accumulated += (ambient + cloudLight * lightVisibility) * stepAlpha;
+            }
             alpha += stepAlpha;
         }
     }
@@ -90,7 +103,7 @@ vec3 applyAirSegment(vec3 color, vec3 originWorld, vec3 rayDir, float distance, 
     float endHeight = originWorld.y + rayDir.y * maxDistance;
     if (max(originWorld.y, endHeight) < 168.0 ||
         min(originWorld.y, endHeight) > 286.0) return fogged;
-    vec4 clouds = renderVolumetricClouds(originWorld, rayDir, maxDistance);
+    vec4 clouds = renderVolumetricClouds(originWorld, rayDir, maxDistance, true);
     if (isSkySurface) {
         clouds.a *= 0.32;
     }
@@ -111,7 +124,7 @@ vec3 cameraMediumTransmittance(vec3 viewPos) {
     float transmission = 1.0 - airFogAmount(length(viewPos), cameraPosition.y, rayDir, false);
     float endHeight = cameraPosition.y + rayDir.y * length(viewPos);
     if (max(cameraPosition.y, endHeight) >= 168.0 && min(cameraPosition.y, endHeight) <= 286.0)
-        transmission *= 1.0 - renderVolumetricClouds(cameraPosition, rayDir, length(viewPos)).a;
+        transmission *= 1.0 - renderVolumetricClouds(cameraPosition, rayDir, length(viewPos), false).a;
     return vec3(transmission);
 }
 

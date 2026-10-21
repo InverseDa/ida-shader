@@ -4,4 +4,4 @@
 #define OVERWORLD
 #define COMPOSITE
 
-#include "/program/composite.glsl"
+#include "/program/taa.glsl"

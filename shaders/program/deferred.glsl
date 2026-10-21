@@ -33,7 +33,7 @@ void main() {
                                    texture2D(colortex9, uv).rgb);
     }
     if (isSky) color = getSkyRadiance(normalize(viewPos));
-    gl_FragData[0] = vec4(normalEncode(normal), isHand ? 1.0 : depth, jittered ? 2.0 : 1.0);
+    gl_FragData[0] = vec4(encodeOpaqueSnapshot(normalEncode(normal), isHand ? 1.0 : depth, jittered), 0.0, 1.0);
     // Keep marks from cracks, glint and other effects drawn before deferred.
     gl_FragData[1] = vec4(max(jittered ? 0.0 : 1.0, texture2D(colortex10, uv).r));
     gl_FragData[2] = vec4(color, 1.0);

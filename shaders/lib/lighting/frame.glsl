@@ -10,7 +10,7 @@ uniform mat4 gbufferModelViewInverse;
 uniform mat4 shadowModelView;
 uniform mat4 shadowProjection;
 uniform sampler2D shadowtex1;
-uniform sampler2D colortex4;  // Opaque normal RG, depth B, ready/jitter code A (0/1/2).
+uniform sampler2D colortex4; // Packed normal/state R, full-precision depth G.
 uniform sampler2D colortex9; // Lightmap input to deferred, then immutable raw opaque radiance.
 uniform sampler2D colortex11; // Immutable opaque radiance AFTER atmosphere.
 uniform sampler2D noisetex;

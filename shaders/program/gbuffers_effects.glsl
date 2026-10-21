@@ -45,7 +45,7 @@ void main() {
 #endif
     // Unlike renderStage, this marker distinguishes pre/post deferred entity
     // draws as well as hand and modded effects. It is reset at every frame.
-    bool afterDeferred = texelFetch(colortex4, ivec2(0), 0).a > 0.5;
+    bool afterDeferred = opaqueSnapshotReady();
     gl_FragData[0] = afterDeferred ? layer : vec4(0.0);
     gl_FragData[1] = afterDeferred ? vec4(0.0) : layer;
     gl_FragData[2] = vec4(max(coverage, 1.0 / 255.0));

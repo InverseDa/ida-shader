@@ -1,6 +1,7 @@
 #ifndef IDA_SCREEN_GLSL
 #define IDA_SCREEN_GLSL
 #include "/lib/post/taa.glsl"
+#include "/lib/common/opaque_snapshot.glsl"
 uniform int frameCounter;
 vec2 currentJitterUv() { return getTaaJitterNdc(frameCounter, vec2(viewWidth, viewHeight)) * 0.5; }
 vec3 reconstructSceneViewPos(vec2 uv, float depth) {
@@ -15,7 +16,7 @@ vec3 reconstructOpaqueViewPos(vec2 uv, vec4 snapshot) {
 }
 vec4 sampleOpaqueData(vec2 uv) {
     ivec2 size = textureSize(colortex4, 0);
-    return texelFetch(colortex4, clamp(ivec2(uv * vec2(size)), ivec2(0), size - 1), 0);
+    return fetchOpaqueData(clamp(ivec2(uv * vec2(size)), ivec2(0), size - 1));
 }
 // Reflection probes need both the projected UV and snapshot. Reuse the first
 // fetch when jitter does not cross a texel boundary; keep the second otherwise.
@@ -30,11 +31,11 @@ bool projectAndSampleOpaque(vec3 p, out vec2 uv, out vec4 opaque) {
         any(greaterThanEqual(uv, vec2(1.0) + abs(jitter)))) return false;
     ivec2 size = textureSize(colortex4, 0);
     ivec2 pixel = clamp(ivec2(uv * vec2(size)), ivec2(0), size - 1);
-    opaque = texelFetch(colortex4, pixel, 0);
+    opaque = fetchOpaqueData(pixel);
     if (opaque.a > 1.5) uv += jitter;
     if (!isScreenUvInRange(uv)) return false;
     ivec2 shiftedPixel = clamp(ivec2(uv * vec2(size)), ivec2(0), size - 1);
-    if (any(notEqual(pixel, shiftedPixel))) opaque = texelFetch(colortex4, shiftedPixel, 0);
+    if (any(notEqual(pixel, shiftedPixel))) opaque = fetchOpaqueData(shiftedPixel);
     return true;
 }
 vec2 opaqueUvForUnjitteredUv(vec2 uv) {
