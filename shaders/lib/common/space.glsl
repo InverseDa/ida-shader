@@ -12,7 +12,7 @@ vec2 getFishEyeCoord(vec2 ndcPos) {
 // =========================== Linear depth function ==========================
 // ============================================================================
 float screenDepthToLinearDepth(float near, float far, float screenDepth) {
-    return 2.0 * near * far / ((far + near) - screenDepth * (far - near));
+    return 2.0 * near * far / ((far + near) - (screenDepth * 2.0 - 1.0) * (far - near));
 }
 
 // Legacy typo-preserving alias for existing code paths.

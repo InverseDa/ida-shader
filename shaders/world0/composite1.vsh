@@ -1,7 +1,7 @@
 #version 130
 
 #define VERTEX_SHADER
-#define END
+#define OVERWORLD
 #define COMPOSITE1
 
-#include "/program/bloom_prefilter.glsl"
+#include "/program/taa.glsl"

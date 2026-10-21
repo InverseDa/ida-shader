@@ -2,7 +2,8 @@
 #define IDA_LIGHTING_SSAO_GLSL
 
 float getSsaoSampleOcclusion(vec2 uv, vec3 centerViewPos, vec3 sampleViewPos, float radius, float bias) {
-    vec3 screenPos = projectViewToScreenPos(sampleViewPos, gbufferProjection);
+    if (sampleViewPos.z >= -near) return 0.0;
+    vec3 screenPos = projectSceneViewPos(sampleViewPos);
     if (!isScreenUvInRange(screenPos.xy)) {
         return 0.0;
     }
@@ -12,7 +13,8 @@ float getSsaoSampleOcclusion(vec2 uv, vec3 centerViewPos, vec3 sampleViewPos, fl
         return 0.0;
     }
 
-    vec3 sceneViewPos = reconstructViewPos(screenPos.xy, sampleDepth, gbufferProjectionInverse);
+    bool jittered = materialUsesTaaJitter(texture2D(colortex5, screenPos.xy));
+    vec3 sceneViewPos = reconstructSurfaceViewPos(screenPos.xy, sampleDepth, jittered);
     float depthDelta = abs(centerViewPos.z - sceneViewPos.z);
     float rangeWeight = smoothstep(0.0, 1.0, radius / max(depthDelta, 0.0001));
     rangeWeight *= rangeWeight;

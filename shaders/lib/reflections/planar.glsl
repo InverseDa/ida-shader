@@ -74,11 +74,11 @@ vec3 getPlanarFallbackAxis(vec3 normalWorld) {
 
 vec3 samplePlanarReflectionColor(vec2 uv) {
     vec2 texel = vec2(1.0 / viewWidth, 1.0 / viewHeight);
-    vec3 color = texture2D(colortex0, uv).rgb * 0.48;
-    color += texture2D(colortex0, uv + vec2(texel.x, 0.0)).rgb * 0.13;
-    color += texture2D(colortex0, uv - vec2(texel.x, 0.0)).rgb * 0.13;
-    color += texture2D(colortex0, uv + vec2(0.0, texel.y)).rgb * 0.13;
-    color += texture2D(colortex0, uv - vec2(0.0, texel.y)).rgb * 0.13;
+    vec3 color = texture2D(colortex9, uv).rgb * 0.48;
+    color += texture2D(colortex9, uv + vec2(texel.x, 0.0)).rgb * 0.13;
+    color += texture2D(colortex9, uv - vec2(texel.x, 0.0)).rgb * 0.13;
+    color += texture2D(colortex9, uv + vec2(0.0, texel.y)).rgb * 0.13;
+    color += texture2D(colortex9, uv - vec2(0.0, texel.y)).rgb * 0.13;
     return color;
 }
 
@@ -102,7 +102,7 @@ float intersectRayPlane(vec3 rayOrigin, vec3 rayDir, vec3 planePoint, vec3 plane
 
 WaterPlaneData buildWaterPlaneData(vec3 worldPos, vec3 worldNormal, float roughness) {
     WaterPlaneData plane;
-    plane.pointWorld = vec3(worldPos.x, floor(worldPos.y * 16.0 + 0.5) / 16.0, worldPos.z);
+    plane.pointWorld = vec3(worldPos.x, floor((worldPos.y + cameraPosition.y) * 16.0 + 0.5) / 16.0 - cameraPosition.y, worldPos.z);
     plane.normalWorld = normalize(worldNormal);
     plane.levelHeight = plane.pointWorld.y;
     plane.mirroredCameraWorld = reflectPointAcrossPlane(vec3(0.0), plane.pointWorld, plane.normalWorld);
@@ -170,13 +170,13 @@ PlanarSamplingConfig buildPlanarSamplingConfig(WaterPlaneData plane, PlanarInter
 }
 
 PlanarSolveResult solvePlanarReflection(
+    WaterPlaneData plane,
     vec3 worldPos,
-    vec3 worldNormal,
     vec3 reflectDirWorld,
     float roughness
 ) {
     PlanarSolveResult result;
-    result.plane = buildWaterPlaneData(worldPos, worldNormal, roughness);
+    result.plane = plane;
     result.intersection = buildPlanarIntersectionData(result.plane, worldPos, reflectDirWorld);
     result.projection = buildPlanarProjectionData(result.plane, result.intersection, roughness);
     result.sampling = buildPlanarSamplingConfig(result.plane, result.intersection);
@@ -212,39 +212,40 @@ PlanarReprojectedSample buildPlanarReprojectedSample(
     vec3 candidateWorldPos
 ) {
     PlanarReprojectedSample sample;
-    vec3 candidateScreenPos = projectWorldToScreenPos(
-        candidateWorldPos,
-        gbufferModelView,
-        gbufferProjection
-    );
-    vec2 uv = candidateScreenPos.xy;
-    if (!isScreenUvInRange(uv)) {
+    vec3 candidateViewPos = worldToViewPos(candidateWorldPos, gbufferModelView);
+    vec2 uv;
+    vec4 opaque;
+    if (!projectAndSampleOpaque(candidateViewPos, uv, opaque)) {
         return createInvalidPlanarReprojectedSample(uv);
     }
 
-    float sceneDepth = texture2D(depthtex1, uv).x;
+    float sceneDepth = opaque.b;
     if (sceneDepth >= 0.999999) {
         return createInvalidPlanarReprojectedSample(uv);
     }
 
-    vec3 sceneViewPos = reconstructViewPos(uv, sceneDepth, gbufferProjectionInverse);
+    vec3 sceneViewPos = reconstructOpaqueViewPos(uv, opaque);
+    float depthError = abs(getPlanarViewSpaceDepth(candidateViewPos) - getPlanarViewSpaceDepth(sceneViewPos));
+    // At these limits the original masks are exactly zero. Reject before
+    // world transforms, normal decoding, alignment work and HDR color reads.
+    if (depthError >= 9.5) return createInvalidPlanarReprojectedSample(uv);
     vec3 sceneWorldPos = viewToWorldPos(sceneViewPos, gbufferModelViewInverse);
-    vec3 candidateViewPos = worldToViewPos(candidateWorldPos, gbufferModelView);
-    vec3 sceneNormalWorld = viewToWorldNormal(
-        normalize(normalDecode(texture2D(colortex2, uv).rg)),
-        gbufferModelViewInverse
-    );
+    float reprojectionError = length(sceneWorldPos - candidateWorldPos);
+    if (reprojectionError >= 13.0) return createInvalidPlanarReprojectedSample(uv);
     vec3 reflectedOffset = sceneWorldPos - intersection.surfacePointWorld;
     vec3 reflectedSampleDir = reflectedOffset / max(length(reflectedOffset), 0.0001);
 
     float sceneHeightAbovePlane = dot(sceneWorldPos - plane.pointWorld, plane.normalWorld);
+    float rayAlignment = clamp(dot(reflectedSampleDir, intersection.reflectedDirWorld), 0.0, 1.0);
+    if (sceneHeightAbovePlane <= -0.2 || rayAlignment <= 0.62) return createInvalidPlanarReprojectedSample(uv);
+    vec3 sceneNormalWorld = viewToWorldNormal(normalDecode(opaque.rg), gbufferModelViewInverse);
     sample.mirroredCandidateWorldPos = candidateWorldPos;
     sample.sceneWorldPos = sceneWorldPos;
     sample.sceneNormalWorld = sceneNormalWorld;
     sample.uv = uv;
-    sample.depthError = abs(getPlanarViewSpaceDepth(candidateViewPos) - getPlanarViewSpaceDepth(sceneViewPos));
-    sample.reprojectionError = length(sceneWorldPos - candidateWorldPos);
-    sample.rayAlignment = clamp(dot(reflectedSampleDir, intersection.reflectedDirWorld), 0.0, 1.0);
+    sample.depthError = depthError;
+    sample.reprojectionError = reprojectionError;
+    sample.rayAlignment = rayAlignment;
     sample.normalAlignment = clamp(dot(sceneNormalWorld, plane.normalWorld), 0.0, 1.0);
     sample.abovePlaneMask = smoothstep(-0.2, 1.2, sceneHeightAbovePlane);
     sample.valid = true;
@@ -274,9 +275,9 @@ PlanarReflectionCandidate evaluatePlanarReprojectedSample(
     float mask = plane.planarWeight * sample.abovePlaneMask * stabilityMask *
                  depthMask * distanceFade * edgeFade * rayMask * normalMask *
                  mix(0.68, 1.04, grazingBoost);
-    vec3 color = samplePlanarReflectionColor(sample.uv);
-
-    return createPlanarReflectionCandidate(color, mask, sample.uv);
+    // Only read color after the final score (including the side weight) passes.
+    if (mask <= 0.0001) return createPlanarReflectionCandidate(fallbackColor, 0.0, sample.uv);
+    return createPlanarReflectionCandidate(fallbackColor, mask, sample.uv);
 }
 
 float scorePlanarReflectionCandidate(
@@ -331,6 +332,7 @@ PlanarReflectionCandidate samplePlanarReflectionCandidate(
         );
         float score = scorePlanarReflectionCandidate(candidate, solveResult.sampling);
         if (score > 0.0001) {
+            candidate.color = samplePlanarReflectionColor(candidate.uv);
             float sampleWeight = score * score;
             accumulatedColor += candidate.color * sampleWeight;
             accumulatedWeight += sampleWeight;
@@ -354,6 +356,7 @@ PlanarReflectionCandidate samplePlanarReflectionCandidate(
             );
             float sideScore = scorePlanarReflectionCandidate(sideCandidate, solveResult.sampling) * 0.58;
             if (sideScore > 0.0001) {
+                sideCandidate.color = samplePlanarReflectionColor(sideCandidate.uv);
                 float sideWeight = sideScore * sideScore;
                 accumulatedColor += sideCandidate.color * sideWeight;
                 accumulatedWeight += sideWeight;
@@ -373,6 +376,11 @@ PlanarReflectionCandidate samplePlanarReflectionCandidate(
         return createPlanarReflectionCandidate(resolvedColor, resolvedMask, bestCandidate.uv);
     }
 
+    // A very small nonzero best score can still reach this fallback. Preserve
+    // its original color even when it was too small for weighted accumulation.
+    if (bestScore > 0.0 && bestScore <= 0.0001) {
+        bestCandidate.color = samplePlanarReflectionColor(bestCandidate.uv);
+    }
     return bestCandidate;
 }
 
@@ -382,7 +390,8 @@ PlanarSolveResult solvePlanarWaterReflection(
     vec3 reflectDirWorld,
     float roughness
 ) {
-    return solvePlanarReflection(worldPos, worldNormal, reflectDirWorld, roughness);
+    return solvePlanarReflection(buildWaterPlaneData(worldPos, worldNormal, roughness),
+                                worldPos, reflectDirWorld, roughness);
 }
 
 #endif

@@ -28,13 +28,13 @@ vec3 getSkyDiskRadiance(vec3 viewDir) {
     float dis2Sun = getSkyDirectionalBlend(viewDir, sunDir);
     float dis2Moon = getSkyDirectionalBlend(viewDir, moonDir);
 
-    float sunHeight = clamp(sunDir.y * 0.5 + 0.5, 0.0, 1.0);
+    float sunHeight = clamp(viewToWorldNormal(sunDir, gbufferModelViewInverse).y * 0.5 + 0.5, 0.0, 1.0);
     float sunriseFade = mix(0.65, 0.95, smoothstep(0.25, 0.70, sunHeight));
     vec3 sunriseTint = getSunriseTint(sunHeight);
-    float sunDisk = smoothstep(0.010, 0.0, dis2Sun) * sunriseFade * (1.0 - nightValue);
-    float sunGlow = pow(clamp(1.0 - dis2Sun * 1.35, 0.0, 1.0), 5.0) * (1.0 - nightValue);
-    sunGlow *= mix(0.28, 0.10, smoothstep(0.25, 0.75, sunHeight));
-    float moonDisk = smoothstep(0.010, 0.0, dis2Moon) * 0.28 * nightValue;
+    float sunDisk = (1.0 - smoothstep(0.0, 0.0025, dis2Sun)) * sunriseFade * (1.0 - nightValue);
+    float sunGlow = pow(clamp(1.0 - dis2Sun * 7.0, 0.0, 1.0), 4.0) * (1.0 - nightValue);
+    sunGlow *= mix(0.12, 0.045, smoothstep(0.25, 0.75, sunHeight));
+    float moonDisk = (1.0 - smoothstep(0.0, 0.0035, dis2Moon)) * 0.22 * nightValue;
 
     return sunriseTint * (sunDisk + sunGlow) + sunColor * moonDisk;
 }
@@ -48,9 +48,7 @@ vec3 drawSky(vec3 color, vec3 viewPos, bool isSkySurface) {
     vec3 skyRadiance = getSkyRadiance(normalize(viewPos));
 
     if (isSkySurface) {
-        float cloudMask = smoothstep(0.02, 0.16, max(color.r, max(color.g, color.b)));
-        vec3 cloudColor = mix(color * 0.82, min(color * 1.24 + 0.08, vec3(1.0)), cloudMask);
-        return mix(skyRadiance, mix(cloudColor, skyRadiance, 0.14), cloudMask);
+        return skyRadiance;
     }
 
     float atmosphere = smoothstep(0.18, 1.0, dis);

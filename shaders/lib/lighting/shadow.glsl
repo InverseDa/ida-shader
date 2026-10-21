@@ -20,14 +20,14 @@ vec2 getShadowFilterOffset(int index) {
 }
 
 float getShadowBias(vec3 viewNormal, float viewDistance) {
-    float lightPlaneAngle = abs(dot(normalize(viewNormal), normalize(sunPosition)));
+    float lightPlaneAngle = abs(dot(normalize(viewNormal), normalize(shadowLightPosition)));
     float slopeBias = (1.0 - lightPlaneAngle) * 0.00055;
     float distanceBias = mix(0.00020, 0.00070, clamp(viewDistance / far, 0.0, 1.0));
     return (slopeBias + distanceBias) * mix(1.0, 0.35, getNoonShadowTightness());
 }
 
 float getShadowReceiverFade(vec3 viewNormal) {
-    float lightParallel = abs(dot(normalize(viewNormal), normalize(sunPosition)));
+    float lightParallel = abs(dot(normalize(viewNormal), normalize(shadowLightPosition)));
     return smoothstep(0.10, 0.28, lightParallel);
 }
 

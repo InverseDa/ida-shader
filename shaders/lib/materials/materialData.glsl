@@ -7,6 +7,9 @@ const float MATERIAL_ID_FOLIAGE = 2.0;
 const float MATERIAL_ID_SKY = 3.0;
 const float MATERIAL_ID_EMISSIVE = 4.0;
 const float MATERIAL_ID_ICE = 5.0;
+const float MATERIAL_ID_DYNAMIC = 6.0;
+const float MATERIAL_ID_HAND = 7.0;
+const float MATERIAL_ID_UNLIT = 8.0;
 
 const float ENTITY_ID_FOLIAGE = 10091.0;
 const float ENTITY_ID_EMISSIVE_LAVA = 10089.0;
@@ -26,6 +29,12 @@ float unpackMaterialId(vec4 materialData) {
 
 bool isMaterial(vec4 materialData, float materialId) {
     return abs(unpackMaterialId(materialData) - materialId) < 0.5;
+}
+
+// Only surfaces with a valid camera-only motion model use projection jitter.
+bool materialUsesTaaJitter(vec4 materialData) {
+    return isMaterial(materialData, MATERIAL_ID_DEFAULT) ||
+           isMaterial(materialData, MATERIAL_ID_EMISSIVE);
 }
 
 vec4 getDefaultMaterialData() {
@@ -53,7 +62,7 @@ vec4 getEmissiveMaterialData() {
 }
 
 bool isIceEntityId(float entityId) {
-    return entityId == 79.0 || entityId == 174.0 || entityId == 212.0 || entityId == 266.0;
+    return entityId == 10093.0;
 }
 
 bool isWaterEntityId(float entityId) {
@@ -71,6 +80,7 @@ vec4 getTranslucentMaterialData(float entityId) {
 }
 
 vec4 getTerrainMaterialData(float entityId) {
+    if (isIceEntityId(entityId)) return getIceMaterialData();
     if (entityId == ENTITY_ID_FOLIAGE) {
         return getFoliageMaterialData();
     }

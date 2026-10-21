@@ -66,7 +66,8 @@ vec3 resolveSmoothSurfaceColor(
         0.0
     );
 
-    if (profile.planarVisibility > 0.0001) {
+    if (profile.planarVisibility > 0.0001 && profile.reflectivity > 0.0 &&
+        profile.reflectionVisibility > 0.0) {
         reflection = resolveScreenPlanarReflection(
             worldPos,
             worldNormal,

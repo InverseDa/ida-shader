@@ -7,19 +7,17 @@
 // =============================================================================
 #ifdef FRAGMENT_SHADER
 uniform sampler2D texture;
-uniform int fogMode;
 
 in vec4 color;
 in vec4 texcoord;
 in float vertexToCameraDistance;
-in vec2 normal;
+in vec3 normal;
 
 /* DRAWBUFFERS:025 */
 void main() {
-  // color: the biome color, texture: gray texture color
-  // texture * color = RealColor
-  gl_FragData[0] = texture2D(texture, texcoord.st) * color;
-  gl_FragData[1] = vec4(normal, 0.0, 1.0);
+  // Vanilla cloud and sky geometry are replaced in composite.
+  gl_FragData[0] = vec4(0.0);
+  gl_FragData[1] = vec4(normalEncode(safeNormal(normal)), 0.0, 1.0);
   gl_FragData[2] = getSkyMaterialData();
 }
 #endif
@@ -31,7 +29,7 @@ void main() {
 out vec4 color;
 out vec4 texcoord;
 out float vertexToCameraDistance;
-out vec2 normal;
+out vec3 normal;
 
 void main() {
   // position in camera(steve)
@@ -42,6 +40,6 @@ void main() {
 
   color = gl_Color;
   texcoord = gl_TextureMatrix[0] * gl_MultiTexCoord0;
-  normal = normalEncode(gl_NormalMatrix * gl_Normal);
+  normal = gl_NormalMatrix * gl_Normal;
 }
 #endif

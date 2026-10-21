@@ -69,24 +69,31 @@ float getWaterThickness(vec3 viewPos, vec3 viewPosBehind) {
     return clamp(waterDepth, 0.0, 34.0);
 }
 
-vec3 sampleRefractedSceneColor(vec3 normalView, float waterDepth, float waveSlope) {
+vec3 sampleRefractedSceneColor(vec2 screenUv, float surfaceDepth, vec3 normalView, float waterDepth, float waveSlope) {
     float refractionStrength = (0.007 + 0.025 * waveSlope) * (1.0 - exp(-waterDepth * 0.18));
     vec2 distortion = normalView.xy * refractionStrength;
-    vec2 uv = clamp(texcoord.st + distortion, vec2(0.001), vec2(0.999));
-    vec3 centerColor = texture2D(colortex0, uv).rgb;
     vec2 texel = vec2(1.0 / viewWidth, 1.0 / viewHeight);
-    centerColor += texture2D(colortex0, uv + vec2(texel.x, 0.0)).rgb * 0.18;
-    centerColor += texture2D(colortex0, uv - vec2(texel.x, 0.0)).rgb * 0.18;
-    return centerColor / 1.36;
+    vec2 uv = opaqueUvForUnjitteredUv(screenUv + distortion);
+    // Do not refract foreground objects across a silhouette.
+    if (sampleOpaqueData(uv).b < surfaceDepth) uv = opaqueUvForUnjitteredUv(screenUv);
+    vec3 centerColor = texture2D(colortex9, uv).rgb;
+    float weight = 1.0;
+    for (int i = -1; i <= 1; i += 2) {
+        vec2 tapUv = clamp(uv + vec2(float(i) * texel.x, 0.0), texel * 0.5, vec2(1.0) - texel * 0.5);
+        if (sampleOpaqueData(tapUv).b >= surfaceDepth) {
+            centerColor += texture2D(colortex9, tapUv).rgb * 0.18;
+            weight += 0.18;
+        }
+    }
+    return centerColor / weight;
 }
 
 vec3 applyWaterVolume(vec3 sceneColor, vec3 baseWaterColor, float waterDepth, float viewCosine) {
     vec3 shallowTint = vec3(0.50, 0.82, 0.82);
     vec3 deepTint = vec3(0.015, 0.155, 0.245);
-    vec3 absorption = vec3(0.20, 0.070, 0.030);
     float depthCurve = smoothstep(1.5, 22.0, waterDepth);
     float grazingDensity = mix(1.28, 0.88, viewCosine);
-    vec3 transmittance = exp(-absorption * waterDepth * grazingDensity);
+    vec3 transmittance = waterTransmittance(waterDepth * grazingDensity);
     vec3 volumeTint = mix(shallowTint, deepTint, depthCurve);
     float scatter = 1.0 - dot(transmittance, vec3(0.3333));
     vec3 refracted = sceneColor * transmittance + volumeTint * scatter * 0.86;
@@ -154,7 +161,8 @@ SmoothSurfaceReflectionProfile getIceReflectionProfile(float reflectivity) {
     );
 }
 
-vec3 drawWater(vec3 color, vec3 worldPos, vec3 viewPos, vec3 viewPosBehind, vec3 normal) {
+vec3 drawWater(vec3 color, vec3 worldPos, vec3 viewPos, vec3 viewPosBehind, vec3 normal,
+               vec2 screenUv, float surfaceDepth, out float transmission) {
     vec3 baseWorldNormal = viewToWorldNormal(normalize(normal), gbufferModelViewInverse);
     float wave;
     float waveSlope;
@@ -186,7 +194,11 @@ vec3 drawWater(vec3 color, vec3 worldPos, vec3 viewPos, vec3 viewPosBehind, vec3
     float fresnel = pow(1.0 - viewCosine, 2.35);
     float reflectivity = mix(0.30, 0.96, fresnel) * mix(1.02, 1.10, wave);
     float waterDepth = getWaterThickness(viewPos, viewPosBehind);
-    vec3 refractedScene = sampleRefractedSceneColor(normal2, waterDepth, mix(waveSlope, reflectionSlope, 0.25));
+    vec3 refractedScene = sampleRefractedSceneColor(screenUv, surfaceDepth, normal2, waterDepth, mix(waveSlope, reflectionSlope, 0.25));
+    // Scalar transmission preserves already drawn transparent layers during
+    // ordinary alpha blending. Spectral absorption remains in the water color.
+    transmission = (1.0 - clamp(reflectivity, 0.0, 1.0)) *
+                   exp(-0.10 * waterDepth) * 0.82;
     vec3 waterBaseColor = mix(color, vec3(0.06, 0.32, 0.42), 0.52);
     vec3 absorbedBaseColor = applyWaterVolume(refractedScene, waterBaseColor, waterDepth, viewCosine);
     SmoothSurfaceReflectionProfile profile = getWaterReflectionProfile(
@@ -215,4 +227,79 @@ vec3 drawIce(vec3 color, vec3 worldPos, vec3 viewPos, vec3 normal) {
     vec3 worldNormal = viewToWorldNormal(smoothNormal, gbufferModelViewInverse);
     SmoothSurfaceReflectionProfile profile = getIceReflectionProfile(reflectivity);
     return resolveSmoothSurfaceColor(color, worldPos, viewPos, worldNormal, reflectDir, profile);
+}
+
+vec3 traceSubmergedReflection(vec3 viewPos, vec3 direction, vec3 waterNormalWorld) {
+    vec3 surfaceWorld = viewToWorldPos(viewPos, gbufferModelViewInverse);
+    // A missed underwater reflection sees the water volume, not the sky.
+    vec3 fallback = waterScatterColor();
+    for (int i = 0; i < 12; ++i) {
+        float fraction = float(i + 1) / 12.0;
+        float travel = 0.35 + 48.0 * fraction * fraction;
+        vec3 candidate = viewPos + direction * travel;
+        vec2 uv;
+        vec4 opaque;
+        if (!projectAndSampleOpaque(candidate, uv, opaque)) break;
+        if (opaque.b >= 0.999999) continue;
+        vec3 hit = reconstructOpaqueViewPos(uv, opaque);
+        float crossing = hit.z - candidate.z;
+        if (crossing < 0.0 || crossing >= max(0.25, travel * 0.12)) continue;
+        vec3 hitWorld = viewToWorldPos(hit, gbufferModelViewInverse);
+        if (dot(hitWorld - surfaceWorld, waterNormalWorld) > -0.15) {
+            return applyUnderwaterMedium(texture2D(colortex9, uv).rgb, length(hit - viewPos));
+        }
+    }
+    return fallback;
+}
+
+vec3 drawUnderwaterSurface(vec3 worldPos, vec3 viewPos, vec3 normal,
+                           vec2 screenUv, float surfaceDepth, out float transmission) {
+    vec3 incident = safeNormal(viewPos);
+    vec3 baseWorldNormal = viewToWorldNormal(safeNormal(normal), gbufferModelViewInverse);
+    // Keep side faces as side faces; only perturb near-horizontal water tops.
+    float wave;
+    float slope;
+    vec3 outward = baseWorldNormal.y < 0.0 ? -baseWorldNormal : baseWorldNormal;
+    vec3 waveNormal = buildWaterWaveWorldNormal(worldPos, outward, 0.65,
+                         0.35 * smoothstep(0.70, 0.95, abs(outward.y)), wave, slope);
+    vec3 n = safeNormal(mat3(gbufferModelView) * waveNormal);
+    if (dot(n, incident) > 0.0) n = -n;
+    vec3 inwardWorld = viewToWorldNormal(n, gbufferModelViewInverse);
+    float fresnel = waterFresnel(-dot(incident, n), 1.333);
+    vec3 reflected = traceSubmergedReflection(viewPos, reflect(incident, n), inwardWorld);
+    transmission = (1.0 - fresnel) * 0.82;
+    if (fresnel >= 0.99999) return reflected;
+
+    vec3 transmitted = refract(incident, n, 1.333);
+    vec3 transmittedWorld = viewToWorldNormal(transmitted, gbufferModelViewInverse);
+    vec2 originalUv = opaqueUvForUnjitteredUv(screenUv);
+    vec4 original = sampleOpaqueData(originalUv);
+    vec3 originalBehind = reconstructOpaqueViewPos(originalUv, original);
+    float travel = original.b >= 0.999999 ? 64.0 : clamp(length(originalBehind - viewPos), 1.0, 64.0);
+    vec3 probe = viewPos + transmitted * travel;
+    vec2 uv = probe.z < -near ? projectOpaqueViewPos(probe).xy : vec2(-1.0);
+    bool sky = !isScreenUvInRange(uv);
+    vec3 radiance = getSkyRadiance(transmitted);
+    float airDistance = 900.0;
+    if (!sky) {
+        vec4 opaque = sampleOpaqueData(uv);
+        if (opaque.b < surfaceDepth) {
+            uv = originalUv;
+            opaque = original;
+        }
+        sky = opaque.b >= 0.999999;
+        vec3 behind = reconstructOpaqueViewPos(uv, opaque);
+        vec3 behindWorld = viewToWorldPos(behind, gbufferModelViewInverse);
+        // Never use a submerged foreground object as the air-side refraction.
+        if (!sky && opaque.b >= surfaceDepth && dot(behindWorld - worldPos, inwardWorld) < 0.0) {
+            radiance = texture2D(colortex9, uv).rgb;
+            airDistance = length(behind - viewPos);
+        } else {
+            sky = true;
+        }
+    }
+    radiance = applyAirSegment(radiance, cameraPosition + worldPos,
+                              transmittedWorld, airDistance, sky);
+    // The caller applies the camera-to-water segment exactly once.
+    return mix(radiance, reflected, fresnel);
 }

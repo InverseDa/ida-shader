@@ -1,10 +1,11 @@
 #include "/lib/constant.glsl"
+#include "/lib/common/color.glsl"
 
 // =====================================================================================
 // ============================== Fragment Shader ======================================
 // =====================================================================================
 #ifdef FRAGMENT_SHADER
-uniform sampler2D colortex0; // color
+uniform sampler2D colortex0; // color after TAA
 uniform sampler2D colortex7; // bloom
 
 in vec4 texcoord;
@@ -43,6 +44,7 @@ void main() {
     vec3 bloom = texture2D(colortex7, texcoord.st).rgb;
     color.rgb += bloom * BLOOM_INTENSITY;
     color.rgb = ACESToneMapping(color.rgb, 0.92);
+    color.rgb = linearToSrgb(color.rgb);
     color.rgb = contrast(color.rgb, 1.03);
     color.rgb = vibrance(color.rgb, 0.12);
     color.rgb = saturation(color.rgb, 1.0);

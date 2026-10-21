@@ -31,10 +31,16 @@ ReflectionResult tracePlanarReflection(
     float roughness,
     vec3 fallbackColor
 ) {
+    WaterPlaneData plane = buildWaterPlaneData(worldPos, worldNormal, roughness);
+    // Vertical/rough surfaces have an exactly zero planar mask. Their sky
+    // fallback remains unchanged, without a 26-candidate screen search.
+    if (plane.planarWeight <= 0.0) {
+        return createReflectionResult(fallbackColor, 0.0, 0.0, 0.0);
+    }
     vec3 reflectDirWorld = viewToWorldNormal(normalize(reflectDir), gbufferModelViewInverse);
     PlanarSolveResult planarSolve = solvePlanarReflection(
+        plane,
         worldPos,
-        worldNormal,
         reflectDirWorld,
         roughness
     );
