@@ -56,7 +56,9 @@ void main() {
     gl_FragData[1] = AfterDeferred ? vec4(0.0) : Layer;
     gl_FragData[2] = vec4(max(Coverage, 1.0 / 255.0));
     // FP16 view depth keeps useful precision without allocating another buffer.
-    gl_FragData[3] = vec4(clamp(-ViewPos.z, 0.0, 65504.0));
+    // Late effects conservatively invalidate covered reflection metadata;
+    // early effects keep their original depth in R for deferred1.
+    gl_FragData[3] = vec4(clamp(-ViewPos.z, 0.0, 65504.0), 0.0, 0.0, 0.0);
 }
 
 #endif // FRAGMENT_SHADER

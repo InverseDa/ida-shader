@@ -152,7 +152,7 @@ vec4 GetTerrainMaterialData(float EntityId) {
     if (EntityId == EntityIdFoliage) {
         return GetFoliageMaterialData();
     }
-    if (EntityId == EntityIdEmissiveLava || EntityId == EntityIdEmissiveLavaCauldron) {
+    if (EntityId == EntityIdEmissiveLava || EntityId == EntityIdEmissiveLavaCauldron || (EntityId > 10100.0 && EntityId < 10140.0)) {
         return GetEmissiveMaterialData();
     }
     return GetDefaultMaterialData();

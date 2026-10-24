@@ -1,7 +1,10 @@
 #ifndef IDA_SHORE_FOAM_GLSL
 #define IDA_SHORE_FOAM_GLSL
 #if SHORE_FOAM == 1 && defined(IDA_WATER_SURFACE_PASS)
+#ifndef IDA_REFLECTION_MATERIAL_SAMPLER
+#define IDA_REFLECTION_MATERIAL_SAMPLER
 uniform sampler2D colortex5;
+#endif
 
 float ShoreFoamSupport(float NormalUp, float BackgroundState, float BackgroundDepth, float SurfaceDepth, float DistanceToCamera, float Footprint) {
     // Static opaque geometry only: entities, unready snapshots and sky cannot

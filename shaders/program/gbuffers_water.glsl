@@ -20,10 +20,15 @@ in vec4 ViewPos;
 #include "/lib/lighting/scene.glsl"
 #include "/lib/misc/atmosphere.glsl"
 #define IDA_WATER_SURFACE_PASS
+#define IDA_REFLECTION_HISTORY_WRITE
 #include "/lib/materials/translucents/water.glsl"
 #include "/lib/materials/translucents/composition.glsl"
 
+#if SSR_TEMPORAL == 1
+/* RENDERTARGETS: 0,10,1,3,15 */
+#else
 /* RENDERTARGETS: 0,10 */
+#endif
 void main() {
     vec2 ScreenUv = gl_FragCoord.xy / vec2(viewWidth, viewHeight);
     vec4 Base = texture2D(texture, Texcoord.st) * Color;
@@ -58,8 +63,12 @@ void main() {
         PbrMaterialSample Pbr = SamplePbrMaterial(Texcoord.st, SurfaceNormal, ViewPos.xyz, Material);
         if (Base.a <= 0.001) discard;
         float TransmissionVisibility;
-        float Visibility = ShadowMapping(WorldPos, Pbr.NormalView, 1.0, TransmissionVisibility);
-        Shaded = ApplySunDirectLight(SrgbToLinear(Base.rgb), Pbr.NormalView, ViewPos.xyz, WorldPos, Pbr.MaterialData, Visibility, TransmissionVisibility, 1.0, SrgbToLinear(texture2D(lightmap, Lmcoord.st).rgb));
+        vec3 ShadowNormal = Pbr.NormalView;
+#if SHADOW_RECEIVER_PLANE == 1
+        ShadowNormal = SurfaceNormal;
+#endif
+        float Visibility = ShadowMapping(WorldPos, ShadowNormal, 1.0, TransmissionVisibility);
+        Shaded = ApplySunDirectLight(SrgbToLinear(Base.rgb), Pbr.NormalView, ViewPos.xyz, WorldPos, Pbr.MaterialData, Visibility, TransmissionVisibility, 1.0, SampleLocalSurfaceLightmap(lightmap, Lmcoord.st, ViewPos.xyz), SurfaceNormal);
         if (isEyeInWater != 1 && IsIceEntityId(float(Mat)))
             Shaded = DrawIce(Shaded, WorldPos, ViewPos.xyz, Pbr.NormalView, Pbr.NormalVariance, ViewVariance);
         Shaded = ApplyAtmosphere(Shaded, ViewPos.xyz, false);
@@ -67,6 +76,11 @@ void main() {
     gl_FragData[0] = vec4(Shaded, Alpha);
     // Additive R8 mask: later transparent layers cannot erase earlier coverage.
     gl_FragData[1] = vec4(max(Alpha, 1.0 / 255.0));
+#if SSR_TEMPORAL == 1
+    gl_FragData[2] = ReflectionColorWrite;
+    gl_FragData[3] = ReflectionSurfaceWrite;
+    gl_FragData[4] = ReflectionHitWrite;
+#endif
 }
 
 #endif // FRAGMENT_SHADER

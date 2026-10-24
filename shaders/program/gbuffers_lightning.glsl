@@ -20,7 +20,7 @@ void main() {
     if (OpaqueSnapshotReady())
         Radiance = ApplyAtmosphere(Radiance, ViewPos, false);
     gl_FragData[0] = vec4(Radiance, 1.0);
-    gl_FragData[1] = vec4(NormalEncode(vec3(0.0, 0.0, 1.0)), 0.0, 1.0);
+    gl_FragData[1] = vec4(NormalEncode(vec3(0.0, 0.0, 1.0)), NormalEncode(vec3(0.0, 0.0, 1.0)));
     gl_FragData[2] = PackMaterialData(1.0, 0.0, 1.0, MaterialIdUnlit);
     // UNLIT bypasses lightmap lookup. Do not overwrite buffer 9's raw scene
     // when lightning is drawn after deferred.

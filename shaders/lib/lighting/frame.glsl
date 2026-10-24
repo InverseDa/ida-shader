@@ -11,7 +11,6 @@
 uniform mat4 gbufferProjection;
 uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelView;
-uniform mat4 gbufferModelViewInverse;
 uniform mat4 shadowModelView;
 uniform mat4 shadowProjection;
 uniform sampler2DShadow shadowtex1;
@@ -22,13 +21,12 @@ uniform sampler2D noisetex;
 uniform vec3 shadowLightPosition;
 uniform vec3 sunPosition;
 uniform vec3 moonPosition;
-uniform vec3 cameraPosition;
 uniform float viewWidth;
 uniform float viewHeight;
 uniform float far;
 uniform float near;
 uniform float frameTimeCounter;
-uniform float rainStrength;
+#include "/lib/lighting/lightmap.glsl"
 #include "/lib/misc/water_medium.glsl"
 in vec3 SkyColor;
 in vec3 SunColor;
@@ -42,6 +40,8 @@ in float NightValue;
 #ifdef VERTEX_SHADER
 
 uniform int worldTime;
+uniform vec3 skyColor;
+#include "/lib/lighting/sky_color.glsl"
 out vec3 SkyColor;
 out vec3 SunColor;
 out float NightValue;
@@ -50,10 +50,11 @@ void SetupFrameLighting() {
     int Hour = Time / 1000;
     int Next = (Hour + 1 < 24) ? Hour + 1 : 0;
     float Delta = float(Time - Hour * 1000) / 1000.0;
-    SkyColor = SrgbToLinear(mix(SkyColorArr[Hour], SkyColorArr[Next], Delta));
     SunColor = SrgbToLinear(mix(SunColorArr[Hour], SunColorArr[Next], Delta));
     NightValue = clamp((float(Time) - 12000.0) / 1000.0, 0.0, 1.0) *
                  (1.0 - clamp((float(Time) - 23000.0) / 1000.0, 0.0, 1.0));
+    // The released night palette is shared by sky, clouds, reflections and fill.
+    SkyColor = GetFrameSkyColor(skyColor, NightValue);
 }
 #endif
 #endif

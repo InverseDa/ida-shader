@@ -32,7 +32,7 @@ float GetSurfaceCloudVisibility(vec3 RelativeWorld, vec3 LightDirWorld, float Sk
     float SampleHeight = 0.5 * (max(AbsolutePos.y, CloudBottom) + CloudTop);
     float Travel = (SampleHeight - AbsolutePos.y) / max(LightDirWorld.y, 0.04);
     vec2 CloudXZ = AbsolutePos.xz + LightDirWorld.xz * Travel;
-    float Coverage = GetCloudCoverageAtHeight(vec3(CloudXZ.x, SampleHeight, CloudXZ.y), vec2(0.0));
+    float Coverage = SampleStyledCloudCoverage(vec3(CloudXZ.x, SampleHeight, CloudXZ.y), vec2(0.0), false);
     float OpticalDepth = Coverage * CloudExtinction * Column / max(LightDirWorld.y, 0.04);
     return SurfaceCloudTransmission(OpticalDepth, Strength);
 }

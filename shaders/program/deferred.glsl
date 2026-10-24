@@ -9,7 +9,6 @@
 #ifdef FRAGMENT_SHADER
 
 uniform sampler2D depthtex0;
-uniform sampler2D depthtex1;
 uniform sampler2D colortex0;
 uniform sampler2D colortex2;
 uniform sampler2D colortex5;
@@ -24,7 +23,12 @@ void main() {
     vec2 Uv = Texcoord.st;
     float Depth = texture2D(depthtex0, Uv).r;
     vec3 Color = texture2D(colortex0, Uv).rgb;
-    vec3 Normal = NormalDecode(texture2D(colortex2, Uv).rg);
+    vec4 NormalData = texelFetch(colortex2, ivec2(gl_FragCoord.xy), 0);
+    vec3 Normal = NormalDecode(NormalData.rg);
+    vec2 GeometryNormalOct = NormalData.rg;
+#if MATERIAL_MODE == 1
+    GeometryNormalOct = NormalData.ba;
+#endif
     vec4 Material = FetchMaterialData(colortex5, Uv);
     bool IsHand = IsMaterial(Material, MaterialIdHand);
     bool IsSky = Depth >= 0.999999;
@@ -34,11 +38,15 @@ void main() {
     if (!IsSky && !IsHand && !IsMaterial(Material, MaterialIdUnlit)) {
         float Ao = GetScreenSpaceAmbientOcclusion(ViewPos, Normal, Jittered);
         float TransmissionVisibility;
-        float Visibility = ShadowMapping(WorldPos, Normal, 1.0, TransmissionVisibility);
-        Color = ApplySunDirectLight(Color, Normal, ViewPos, WorldPos, Material, Visibility, TransmissionVisibility, Ao, texture2D(colortex9, Uv).rgb);
+        vec3 ShadowNormal = Normal;
+#if SHADOW_RECEIVER_PLANE == 1
+        ShadowNormal = NormalDecode(GeometryNormalOct);
+#endif
+        float Visibility = ShadowMapping(WorldPos, ShadowNormal, 1.0, TransmissionVisibility);
+        Color = ApplySunDirectLight(Color, Normal, ViewPos, WorldPos, Material, Visibility, TransmissionVisibility, Ao, texture2D(colortex9, Uv).rgb, NormalDecode(GeometryNormalOct));
     }
     if (IsSky) Color = GetSkyRadiance(normalize(ViewPos));
-    gl_FragData[0] = vec4(EncodeOpaqueSnapshot(NormalEncode(Normal), IsHand ? 1.0 : Depth, Jittered), 0.0, 1.0);
+    gl_FragData[0] = vec4(EncodeOpaqueSnapshot(GeometryNormalOct, IsHand ? 1.0 : Depth, Jittered), 0.0, 1.0);
     // Keep marks from cracks, glint and other effects drawn before deferred.
     gl_FragData[1] = vec4(max(Jittered ? 0.0 : 1.0, texture2D(colortex10, Uv).r));
     gl_FragData[2] = vec4(Color, 1.0);

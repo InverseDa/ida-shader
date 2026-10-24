@@ -19,6 +19,7 @@
 #include "/lib/misc/water_medium.glsl"
 uniform sampler2D texture;
 uniform sampler2D lightmap;
+#include "/lib/lighting/lightmap.glsl"
 in vec4 Color;
 in vec4 Texcoord;
 in vec4 Lmcoord;
@@ -41,9 +42,14 @@ void main() {
 #if !defined(IDA_MATERIALS_PBR_GLSL) || MATERIAL_MODE == 0
     if (Base.a <= 0.001) discard;
 #endif
+#if defined(GBUFFERS_HAND) || defined(GBUFFERS_HAND_WATER) || (defined(FORWARD_TRANSLUCENT) && (defined(COLOR_ONLY) || defined(PARTICLE)))
     vec3 VanillaLight = SrgbToLinear(texture2D(lightmap, Lmcoord.st).rgb);
+#else
+    vec3 VanillaLight = SampleLocalSurfaceLightmap(lightmap, Lmcoord.st, ViewPos);
+#endif
     vec3 Albedo = SrgbToLinear(Base.rgb);
     vec3 GeometryNormal = SafeNormal(Normal);
+    vec2 GeometryNormalOct = NormalEncode(GeometryNormal);
 #if defined(GBUFFERS_HAND) || defined(GBUFFERS_HAND_WATER)
     vec4 Material = PackMaterialData(0.82, 0.04, 1.0, MaterialIdHand);
 #else
@@ -70,7 +76,7 @@ void main() {
     vec3 WorldPos = ViewToWorldPos(ViewPos, gbufferModelViewInverse);
     float TransmissionVisibility;
     float Visibility = ShadowMapping(WorldPos, GeometryNormal, 1.0, TransmissionVisibility);
-    Albedo = ApplySunDirectLight(Albedo, GeometryNormal, ViewPos, WorldPos, Material, Visibility, TransmissionVisibility, 1.0, VanillaLight);
+    Albedo = ApplySunDirectLight(Albedo, GeometryNormal, ViewPos, WorldPos, Material, Visibility, TransmissionVisibility, 1.0, VanillaLight, SafeNormal(Normal));
 #endif
     Albedo = ApplyAtmosphere(Albedo, ViewPos, false);
 #else
@@ -80,7 +86,7 @@ void main() {
 #if defined(FORWARD_TRANSLUCENT)
     gl_FragData[1] = vec4(max(Base.a, 1.0 / 255.0));
 #else
-    gl_FragData[1] = vec4(NormalEncode(GeometryNormal), 0.0, 1.0);
+    gl_FragData[1] = vec4(NormalEncode(GeometryNormal), GeometryNormalOct);
     gl_FragData[2] = Material;
 #if defined(GBUFFERS_HAND)
     // First-person hand rendering intentionally covers earlier world overlays.

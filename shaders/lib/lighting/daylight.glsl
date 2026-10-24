@@ -16,11 +16,20 @@ float DirectionalHeightStrength(float LightHeight, float NightAmount) {
 vec3 GetDirectionalLightRadiance(vec3 SunLightColor, float NightAmount) {
     // The legacy sky tint table contains sRGB values >1 (2 becomes ~4.95 in
     // linear space). Preserve its hue, but do not use that sky-art gain as
-    // surface irradiance. Clear noon and the existing moon radiance are kept.
+    // irradiance. This shared source also illuminates clouds: keep its released
+    // energy budget and apply the surface-only daylight adjustment separately.
     vec3 PositiveColor = max(SunLightColor, vec3(0.0));
     float Peak = max(PositiveColor.r, max(PositiveColor.g, PositiveColor.b));
     vec3 SunRadiance = PositiveColor / max(Peak, 1.0) * 0.9;
     return mix(SunRadiance, vec3(0.12, 0.16, 0.28), clamp(NightAmount, 0.0, 1.0));
+}
+
+float SurfaceSunlightGain(float RainAmount, float NightAmount) {
+    // More surface contrast in clear daylight without overexposing clouds,
+    // changing moonlight, or doubling the existing water sparkle treatment.
+    float ClearDay = (1.0 - smoothstep(0.0, 1.0, RainAmount)) *
+                     (1.0 - smoothstep(0.0, 1.0, NightAmount));
+    return mix(1.0, 1.6, ClearDay);
 }
 
 float CloudWeatherContrast(float RainAmount, float NightAmount) {
@@ -38,7 +47,7 @@ float SurfaceAmbientShadowFloor(float RainAmount, float NightAmount) {
     // Only soften the extra shadow-map modulation of sky fill. SSAO/material
     // AO still occlude it; no new ambient light, Lightmap or emission boost.
     float DiffuseWeather = max(smoothstep(0.0, 1.0, RainAmount), smoothstep(0.0, 1.0, NightAmount));
-    return mix(0.70, 0.90, DiffuseWeather);
+    return mix(0.85, 0.90, DiffuseWeather);
 }
 
 #endif

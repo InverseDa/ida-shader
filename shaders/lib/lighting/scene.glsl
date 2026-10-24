@@ -6,7 +6,8 @@
 #include "/lib/lighting/surface.glsl"
 #include "/lib/lighting/cloud_shadow.glsl"
 #include "/lib/lighting/vegetation.glsl"
-vec3 ApplySunDirectLight(vec3 Color, vec3 Normal, vec3 ViewPos, vec3 WorldPos, vec4 MaterialData, float Shadow, float TransmissionVisibility, float Ssao, vec3 VanillaLight) {
+#include "/lib/lighting/local_light.glsl"
+vec3 ApplySunDirectLight(vec3 Color, vec3 Normal, vec3 ViewPos, vec3 WorldPos, vec4 MaterialData, float Shadow, float TransmissionVisibility, float Ssao, vec3 VanillaLight, vec3 GeometryNormal) {
     MaterialLightingProfile Profile = GetMaterialLightingProfile(MaterialData);
     vec3 SurfaceNormal = normalize(Normal);
     vec3 ViewDir = normalize(-ViewPos);
@@ -24,7 +25,7 @@ vec3 ApplySunDirectLight(vec3 Color, vec3 Normal, vec3 ViewPos, vec3 WorldPos, v
     vec3 LightRadiance = GetDirectionalLightRadiance(SunColor, NightValue) * SunlightStrength * DIRECT_LIGHT_STRENGTH;
     // Rain suppresses the directional source, including the backlit leaf term;
     // Lightmap, emission, sky fill and reflected sky keep their own budgets.
-    LightRadiance *= WeatherDirectFactor(rainStrength);
+    LightRadiance *= WeatherDirectFactor(rainStrength) * SurfaceSunlightGain(rainStrength, NightValue);
 #if CLOUD_SHADOWS == 1
     bool NeedsDirectLight = dot(SurfaceNormal, LightDir) > 0.0;
 #if VEGETATION_TRANSMISSION == 1
@@ -47,7 +48,11 @@ vec3 ApplySunDirectLight(vec3 Color, vec3 Normal, vec3 ViewPos, vec3 WorldPos, v
     vec3 LightmapResponse = mix(Color * (vec3(1.0) - F0), F0, Metallic);
     vec3 Ambient = LightmapResponse * VanillaLight * MaterialAo * Profile.AmbientScale * LIGHTMAP_STRENGTH;
     vec3 Emission = Color * Profile.EmissionStrength;
-    return Ambient + Lighting.Direct + Lighting.Ambient + Emission;
+    vec3 Local = EvaluateLocalLights(Color, SurfaceNormal, ViewPos, Roughness, Metallic, F0, GeometryNormal) * Profile.DirectScale;
+    return Ambient + Lighting.Direct + Lighting.Ambient + Emission + Local;
+}
+vec3 ApplySunDirectLight(vec3 Color, vec3 Normal, vec3 ViewPos, vec3 WorldPos, vec4 MaterialData, float Shadow, float TransmissionVisibility, float Ssao, vec3 VanillaLight) {
+    return ApplySunDirectLight(Color, Normal, ViewPos, WorldPos, MaterialData, Shadow, TransmissionVisibility, Ssao, VanillaLight, Normal);
 }
 
 #endif

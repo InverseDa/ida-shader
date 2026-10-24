@@ -1,4 +1,4 @@
-#version 130
+#version 430 compatibility
 
 // Shader Stage
 #define VERTEX_SHADER

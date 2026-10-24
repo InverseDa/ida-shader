@@ -104,7 +104,9 @@ vec3 GetWaterSunSparkle(vec3 ViewPos, vec3 SparkleNormalView, float Variance, fl
 }
 
 SmoothSurfaceReflectionProfile GetIceReflectionProfile(float Reflectivity) {
-    return CreateSmoothSurfaceReflectionProfile(0.18, Reflectivity, 0.96, 0.72, 0.38, 0.94, 0.05, vec3(1.0), 0.95);
+    SmoothSurfaceReflectionProfile Profile = CreateSmoothSurfaceReflectionProfile(0.18, Reflectivity, 0.96, 0.72, 0.38, 0.94, 0.05, vec3(1.0), 0.95);
+    Profile.HistoryKind = 2.0;
+    return Profile;
 }
 
 vec3 DrawWater(vec3 Color, vec3 WorldPos, vec3 ViewPos, vec3 ViewPosBehind, vec3 Normal, vec2 Dpdx, vec2 Dpdy, float ViewVariance, vec2 ScreenUv, float SurfaceDepth, vec2 OpaqueUv, vec4 Opaque, vec2 LightmapUv, vec3 VanillaLight, out float Transmission) {
@@ -131,11 +133,13 @@ vec3 DrawWater(vec3 Color, vec3 WorldPos, vec3 ViewPos, vec3 ViewPosBehind, vec3
     Transmission = WaterLayerTransmission(Transmittance, Reflectivity);
     vec3 AbsorbedBaseColor = ApplyWaterVolume(RefractedScene, WaterSurfaceScatter(Color, VanillaLight), Transmittance);
     SmoothSurfaceReflectionProfile Profile = GetWaterReflectionProfile(Reflectivity, Wave, mix(WaveSlope, ReflectionSlope, 0.2));
-    // Do not change planar eligibility with the AA roughness: its 0.22 cutoff
-    // would otherwise make reflections switch off when a normal varies rapidly.
+    // Keep geometric reflection eligibility independent of AA highlight variance.
     Profile.HighlightVariance = 4.0 * Waves.Variance * 0.051 + ViewVariance;
     vec3 SurfaceColor = ResolveSmoothSurfaceColor(AbsorbedBaseColor, WorldPos, ViewPos, ReflectionNormal, ReflectDir, Profile);
     SurfaceColor += GetWaterSunSparkle(ViewPos, SparkleNormal, Waves.Variance * 0.41 + ViewVariance * 0.25, max(WaveSlope, ReflectionSlope), WaterDepth, Fresnel, LightmapUv.y);
+#ifdef IDA_LIGHTING_LOCAL_LIGHT_GLSL
+    SurfaceColor += EvaluateLocalLights(vec3(0.0), SparkleNormal, ViewPos, 0.18, 0.0, vec3(0.02), normalize(Normal));
+#endif
 #if SHORE_FOAM == 1 && defined(IDA_WATER_SURFACE_PASS)
     float Foam = SampleShoreFoam(WorldPos, ViewPos, ViewPosBehind, BaseWorldNormal, OpaqueUv, Opaque, SurfaceDepth, Dpdx, Dpdy, Waves.Height);
     if (Foam > 0.0) {

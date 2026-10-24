@@ -32,12 +32,16 @@ float CloudDistanceWeight(float Distance) {
 }
 
 float CloudSamplePhase(vec2 Pixel) {
-    // Spatially distributed strata remove the visible stack of 12 planes.
+    // Spatially distributed strata soften the march's discrete sample planes.
     // Deliberately no frame index: a stationary view must not boil each frame.
     return 0.15 + 0.70 * fract(52.9829189 * fract(dot(Pixel, vec2(0.06711056, 0.00583715))));
 }
 
-vec4 RenderVolumetricClouds(vec3 OriginWorld, vec3 RayDir, float MaxDistance, bool NeedColor) {
+#if CLOUD_STYLE == 0
+#include "/lib/misc/block_clouds.glsl"
+#endif
+
+vec4 RenderVolumetricCloudsAtPhase(vec3 OriginWorld, vec3 RayDir, float MaxDistance, bool NeedColor, float Phase) {
     vec2 Interval = CloudRayInterval(OriginWorld, RayDir, MaxDistance);
     float Travel = Interval.y - Interval.x;
     if (Travel <= 0.0) return vec4(0.0);
@@ -57,16 +61,15 @@ vec4 RenderVolumetricClouds(vec3 OriginWorld, vec3 RayDir, float MaxDistance, bo
     }
     vec3 Accumulated = vec3(0.0);
     float Alpha = 0.0;
-    float StepLength = Travel / 12.0;
+    float StepLength = Travel / float(CLOUD_SAMPLES);
     // Filter frequencies unresolved by the march or the screen pixel. Explicit
     // world footprints also work in forward / transmission-only branches.
     float PixelAngle = 2.0 / max(abs(gbufferProjection[1][1]) * viewHeight, 1.0);
-    float Phase = CloudSamplePhase(gl_FragCoord.xy);
     float PreviousColumn = CloudColumnLengthAbove(OriginWorld.y + RayDir.y * Interval.x);
 
-    for (int I = 0; I < 12; ++I) {
+    for (int I = 0; I < CLOUD_SAMPLES; ++I) {
         if (Alpha >= 0.995) break;
-        float StepValue = (float(I) + Phase) / 12.0;
+        float StepValue = (float(I) + Phase) / float(CLOUD_SAMPLES);
         float T = Interval.x + Travel * StepValue;
         vec3 AbsolutePos = OriginWorld + RayDir * T;
         float NextHeight = OriginWorld.y + RayDir.y * (Interval.x + float(I + 1) * StepLength);
@@ -78,14 +81,23 @@ vec4 RenderVolumetricClouds(vec3 OriginWorld, vec3 RayDir, float MaxDistance, bo
             HeightDensity = clamp(abs(NextColumn - PreviousColumn) / max(StepLength * abs(RayDir.y), 0.000001), 0.0, 1.0);
         PreviousColumn = NextColumn;
         vec2 Footprint = max(StepLength * vec2(length(RayDir.xz), abs(RayDir.y)), vec2(T * PixelAngle));
-        float Coverage = GetCloudCoverageAtHeight(AbsolutePos, Footprint);
+        float Coverage = SampleStyledCloudCoverage(AbsolutePos, Footprint, true);
         float Density = Coverage * HeightDensity * CloudDistanceWeight(T);
         if (Density > 0.0) {
             float StepAlpha = (1.0 - exp(-Density * CloudExtinction * StepLength)) * (1.0 - Alpha);
             // Emissive overlays only need transmission, not lit cloud color.
             if (NeedColor) {
-                float LightVisibility = GetCloudShadow(AbsolutePos.y, LightDir.y, Coverage);
-                Accumulated += (Ambient + CloudLight * LightVisibility) * StepAlpha;
+                // One sample towards the light adds directional self-shadow,
+                // instead of shading every cloud as a vertical uniform column.
+                vec3 ShadowPosition = AbsolutePos + LightDir * 24.0;
+                float ShadowCoverage = GetCloudCoverageAtHeight(ShadowPosition, vec2(8.0));
+                float ShadowDensity = ShadowCoverage * GetCloudHeightDensity(ShadowPosition.y);
+                float LocalDepth = (Coverage * GetCloudHeightDensity(AbsolutePos.y) + ShadowDensity) * 12.0 * CloudExtinction;
+                float LightVisibility = GetCloudShadow(ShadowPosition.y, LightDir.y, ShadowCoverage) *
+                                        (0.15 + 0.85 * exp(-LocalDepth));
+                float HeightLight = smoothstep(CloudBottom, CloudTop, AbsolutePos.y);
+                float Rim = pow(max(dot(RayDir, LightDir), 0.0), 8.0) * pow(1.0 - Coverage, 2.0) * 0.18;
+                Accumulated += (Ambient * mix(0.62, 1.0, HeightLight) + CloudLight * (LightVisibility + Rim)) * StepAlpha;
             }
             Alpha += StepAlpha;
         }
@@ -93,6 +105,14 @@ vec4 RenderVolumetricClouds(vec3 OriginWorld, vec3 RayDir, float MaxDistance, bo
 
     vec3 CloudColor = Accumulated / max(Alpha, 0.0001);
     return vec4(CloudColor, clamp(Alpha, 0.0, 1.0));
+}
+
+vec4 RenderVolumetricClouds(vec3 OriginWorld, vec3 RayDir, float MaxDistance, bool NeedColor) {
+#if CLOUD_STYLE == 0
+    return RenderBlockClouds(OriginWorld, RayDir, MaxDistance, NeedColor);
+#else
+    return RenderVolumetricCloudsAtPhase(OriginWorld, RayDir, MaxDistance, NeedColor, CloudSamplePhase(gl_FragCoord.xy));
+#endif
 }
 
 float AirFogAmount(float Distance, float OriginHeight, vec3 RayDir, bool IsSkySurface) {
@@ -106,17 +126,29 @@ float AirFogAmount(float Distance, float OriginHeight, vec3 RayDir, bool IsSkySu
     return clamp(FogAmount, 0.0, 0.86);
 }
 
+#include "/lib/misc/godrays.glsl"
+
 vec3 ApplyAirSegment(vec3 Color, vec3 OriginWorld, vec3 RayDir, float Distance, bool IsSkySurface) {
     float MaxDistance = IsSkySurface ? CloudMaxDistance : max(Distance, 0.0);
-    vec3 AirColor = GetSkyRadiance(normalize(mat3(gbufferModelView) * RayDir));
+    vec3 AirColor = GetSkyBaseRadiance(normalize(mat3(gbufferModelView) * RayDir));
+    // Aerial haze integrates scattered light, rather than the saturated sky
+    // pixel (or solar disk) behind a surface. Preserve luminance but soften
+    // chroma so mid-distance foliage keeps its green in directional shade.
+    float AirLuma = dot(AirColor, vec3(0.2126, 0.7152, 0.0722));
+    AirColor = mix(vec3(AirLuma), AirColor, 0.35);
+    // v0.1a night haze used the same colored sky/moon radiance as reflections.
+    AirColor = mix(AirColor, GetSkyRadiance(normalize(mat3(gbufferModelView) * RayDir)), NightValue);
     AirColor = mix(AirColor, vec3(0.52, 0.58, 0.62), rainStrength * 0.42);
     vec3 Fogged = mix(Color, AirColor, AirFogAmount(Distance, OriginWorld.y, RayDir, IsSkySurface));
+    vec3 SunShafts = isEyeInWater == 1 ? vec3(0.0) : RenderSunShafts(OriginWorld, RayDir, MaxDistance);
     // Most geometry is below the cloud slab. Do not enter the ray marcher
     // when the entire camera-to-surface segment is below or above it.
     float EndHeight = OriginWorld.y + RayDir.y * MaxDistance;
-    if (max(OriginWorld.y, EndHeight) < CloudBottom || min(OriginWorld.y, EndHeight) > CloudTop) return Fogged;
+    if (max(OriginWorld.y, EndHeight) < CloudBottom || min(OriginWorld.y, EndHeight) > CloudTop) return Fogged + SunShafts;
     vec4 Clouds = RenderVolumetricClouds(OriginWorld, RayDir, MaxDistance, true);
-    return mix(Fogged, Clouds.rgb, Clouds.a);
+    // Shafts integrate only foreground air up to the cloud base: clouds behind
+    // that segment must not erase it. The underwater/additive paths skip it.
+    return mix(Fogged, Clouds.rgb, Clouds.a) + SunShafts;
 }
 
 vec3 ApplyAtmosphere(vec3 Color, vec3 ViewPos, bool IsSkySurface) {

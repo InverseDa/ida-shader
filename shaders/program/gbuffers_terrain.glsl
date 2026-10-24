@@ -12,6 +12,7 @@
 
 uniform sampler2D texture;
 uniform sampler2D lightmap;
+#include "/lib/lighting/lightmap.glsl"
 
 in vec4 Color;
 in vec4 Texcoord;
@@ -47,8 +48,8 @@ void main() {
     }
 #endif
     gl_FragData[0] = vec4(Albedo, Base.a);
-    gl_FragData[3] = vec4(SrgbToLinear(texture2D(lightmap, Lmcoord.st).rgb), 1.0);
-    gl_FragData[1] = vec4(NormalEncode(Pbr.NormalView), 0.0, 1.0);
+    gl_FragData[3] = vec4(SampleLocalSurfaceLightmap(lightmap, Lmcoord.st, ViewPos), 1.0);
+    gl_FragData[1] = vec4(NormalEncode(Pbr.NormalView), NormalEncode(GeometryNormal));
     gl_FragData[2] = Pbr.MaterialData;
 }
 

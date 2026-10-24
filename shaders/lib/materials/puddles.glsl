@@ -6,6 +6,7 @@
 #include "/lib/materials/wetness.glsl"
 #include "/lib/reflections/puddle_trace.glsl"
 #include "/lib/materials/lighting/sky.glsl"
+#include "/lib/reflections/environment.glsl"
 
 float PuddleRetention(vec4 Material) {
     if (IsMaterial(Material, MaterialIdPuddleSoil)) return 0.78;
@@ -74,15 +75,17 @@ vec3 DrawPuddleReflection(vec3 BaseColor, vec3 ViewPos, vec4 Material, float Vie
     float HighlightVariance = 0.0001 + ViewVariance;
     // Suppress the HDR sky disk during rain and at night, avoiding isolated
     // bright points in the fallback. Scene reflections keep their HDR values.
-    vec3 Sky = mix(GetSkyBaseRadiance(ReflectDir), SkyColor, clamp(rainStrength, 0.0, 1.0) * 0.75);
+    vec3 Sky = mix(GetSkyScatteringRadiance(ReflectDir, HighlightVariance), SkyColor, clamp(rainStrength, 0.0, 1.0) * 0.75);
     Sky += GetFilteredSkyDiskRadiance(ReflectDir, HighlightVariance) *
            (1.0 - smoothstep(0.0, 1.0, rainStrength)) * (1.0 - NightValue) * 0.25;
+    Sky = SampleReflectionEnvironment(Sky, WorldPos, ReflectDir).rgb;
     ReflectionResult Reflected = CreateReflectionResult(Sky, 0.0);
     // An almost invisible edge gets sky only, fading SSR in continuously.
     float SearchVisibility = smoothstep(0.01, 0.04, Reflectivity);
     if (SearchVisibility > 0.0) {
         Reflected = TracePuddleReflection(ViewPos, NormalView, ReflectDir, Sky);
         Reflected.Confidence *= SearchVisibility;
+        Reflected = ResolveTemporalReflection(Reflected, ViewPos, WorldNormal, ReflectDir, 3.0);
     }
     return ComposePuddleReflection(BaseColor, Sky, Reflected.Color, Reflected.Confidence, Reflectivity);
 }

@@ -11,7 +11,7 @@ struct SurfaceLightingResult {
 };
 
 float GetShadowTone(float Shadow) {
-    return clamp(1.0 - (1.0 - Shadow) * 1.28, 0.0, 1.0);
+    return clamp(Shadow, 0.0, 1.0);
 }
 
 SurfaceLightingResult EvaluateSurfaceLighting(vec3 Albedo, vec3 Normal, vec3 ViewDir, vec3 LightDir, vec3 LightRadiance, vec3 SkyAmbientColor, vec3 SkyReflection, float Roughness, float Metallic, vec3 F0, float Ao, float Shadow, MaterialLightingProfile Profile) {
@@ -27,7 +27,9 @@ SurfaceLightingResult EvaluateSurfaceLighting(vec3 Albedo, vec3 Normal, vec3 Vie
 
     float CombinedShadow = GetShadowTone(Shadow);
     float AmbientShadow = mix(SurfaceAmbientShadowFloor(rainStrength, NightValue), 1.0, smoothstep(0.25, 1.0, CombinedShadow));
-    float DirectShadow = mix(CombinedShadow, 1.0, Profile.ShadowLift * 0.18 * Ao);
+    // A fully blocked directional source contributes no direct light.
+    // Sky/Lightmap ambient retain detail without leaking sunlight into shade.
+    float DirectShadow = CombinedShadow;
     Result.Direct = EvaluateDirectionalBRDF(Albedo, SurfaceNormal, ViewDir, LightDir, LightRadiance, Roughness, Metallic, F0) *
                     DirectShadow * Profile.DirectScale;
     Result.Ambient = AmbientLight * Profile.AmbientScale * AmbientShadow;
