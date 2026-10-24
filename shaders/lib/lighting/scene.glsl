@@ -6,76 +6,48 @@
 #include "/lib/lighting/surface.glsl"
 #include "/lib/lighting/cloud_shadow.glsl"
 #include "/lib/lighting/vegetation.glsl"
-vec3 applySunDirectLight(
-    vec3 color,
-    vec3 normal,
-    vec3 viewPos,
-    vec3 worldPos,
-    vec4 materialData,
-    float shadow,
-    float transmissionVisibility,
-    float ssao,
-    vec3 vanillaLight
-) {
-    MaterialLightingProfile profile = getMaterialLightingProfile(materialData);
-    vec3 surfaceNormal = normalize(normal);
-    vec3 viewDir = normalize(-viewPos);
-    if (profile.transmissionScale > 0.0) surfaceNormal = vegetationFacingNormal(surfaceNormal, viewDir);
-    vec3 lightDir = normalize(shadowLightPosition);
-    vec3 lightDirWorld = viewToWorldNormal(lightDir, gbufferModelViewInverse);
-    float sunlightStrength = directionalHeightStrength(lightDirWorld.y, nightValue);
+vec3 ApplySunDirectLight(vec3 Color, vec3 Normal, vec3 ViewPos, vec3 WorldPos, vec4 MaterialData, float Shadow, float TransmissionVisibility, float Ssao, vec3 VanillaLight) {
+    MaterialLightingProfile Profile = GetMaterialLightingProfile(MaterialData);
+    vec3 SurfaceNormal = normalize(Normal);
+    vec3 ViewDir = normalize(-ViewPos);
+    if (Profile.TransmissionScale > 0.0) SurfaceNormal = VegetationFacingNormal(SurfaceNormal, ViewDir);
+    vec3 LightDir = normalize(shadowLightPosition);
+    vec3 LightDirWorld = ViewToWorldNormal(LightDir, gbufferModelViewInverse);
+    float SunlightStrength = DirectionalHeightStrength(LightDirWorld.y, NightValue);
 
-    float roughness = adjustMaterialRoughness(materialData, getMaterialRoughness(materialData));
-    float metallic = getMaterialMetallic(materialData);
-    vec3 f0 = getMaterialF0(materialData, color);
-    float materialAo = getMaterialAO(materialData) * ssao;
-    float skyVisibility = getMaterialSkyVisibility(materialData);
-    vec3 skyReflection = getMaterialSkyReflection(reflect(-viewDir, surfaceNormal), roughness);
-    vec3 lightRadiance = getDirectionalLightRadiance(sunColor, nightValue) * sunlightStrength * DIRECT_LIGHT_STRENGTH;
+    float Roughness = AdjustMaterialRoughness(MaterialData, GetMaterialRoughness(MaterialData));
+    float Metallic = GetMaterialMetallic(MaterialData);
+    vec3 F0 = GetMaterialF0(MaterialData, Color);
+    float MaterialAo = GetMaterialAO(MaterialData) * Ssao;
+    float SkyVisibility = GetMaterialSkyVisibility(MaterialData);
+    vec3 SkyReflection = GetMaterialSkyReflection(reflect(-ViewDir, SurfaceNormal), Roughness);
+    vec3 LightRadiance = GetDirectionalLightRadiance(SunColor, NightValue) * SunlightStrength * DIRECT_LIGHT_STRENGTH;
     // Rain suppresses the directional source, including the backlit leaf term;
     // Lightmap, emission, sky fill and reflected sky keep their own budgets.
-    lightRadiance *= weatherDirectFactor(rainStrength);
+    LightRadiance *= WeatherDirectFactor(rainStrength);
 #if CLOUD_SHADOWS == 1
-    bool needsDirectLight = dot(surfaceNormal, lightDir) > 0.0;
+    bool NeedsDirectLight = dot(SurfaceNormal, LightDir) > 0.0;
 #if VEGETATION_TRANSMISSION == 1
-    needsDirectLight = needsDirectLight || profile.transmissionScale > 0.0;
+    NeedsDirectLight = NeedsDirectLight || Profile.TransmissionScale > 0.0;
 #endif
-    if (profile.directScale > 0.0 && needsDirectLight && sunlightStrength > 0.0) {
-        lightRadiance *= getSurfaceCloudVisibility(worldPos, lightDirWorld, skyVisibility);
+    if (Profile.DirectScale > 0.0 && NeedsDirectLight && SunlightStrength > 0.0) {
+        LightRadiance *= GetSurfaceCloudVisibility(WorldPos, LightDirWorld, SkyVisibility);
     }
 #endif
-    SurfaceLightingResult lighting = evaluateSurfaceLighting(
-        color,
-        surfaceNormal,
-        viewDir,
-        lightDir,
-        lightRadiance,
-        skyColor * skyVisibility * SKY_AMBIENT_STRENGTH,
-        skyReflection * skyVisibility * SKY_AMBIENT_STRENGTH,
-        roughness,
-        metallic,
-        f0,
-        materialAo,
-        shadow,
-        profile
-    );
+    SurfaceLightingResult Lighting = EvaluateSurfaceLighting(Color, SurfaceNormal, ViewDir, LightDir, LightRadiance, SkyColor * SkyVisibility * SKY_AMBIENT_STRENGTH, SkyReflection * SkyVisibility * SKY_AMBIENT_STRENGTH, Roughness, Metallic, F0, MaterialAo, Shadow, Profile);
 #if VEGETATION_TRANSMISSION == 1
-    if (profile.transmissionScale > 0.0) {
-        lighting.direct += evaluateVegetationTransmission(
-            color, surfaceNormal, viewDir, lightDir, lightRadiance, f0, metallic,
-            profile.transmissionScale, profile.directScale, skyVisibility, transmissionVisibility
-        );
+    if (Profile.TransmissionScale > 0.0) {
+        Lighting.Direct += EvaluateVegetationTransmission(Color, SurfaceNormal, ViewDir, LightDir, LightRadiance, F0, Metallic, Profile.TransmissionScale, Profile.DirectScale, SkyVisibility, TransmissionVisibility);
     }
 #endif
 
     // Albedo stays unlit until here. Vanilla light is an ambient term only.
     // Lightmap includes block lights and is not suppressed by sky visibility.
     // Isotropic ambient approximation: dielectric diffuse or conductor F0.
-    vec3 lightmapResponse = mix(color * (vec3(1.0) - f0), f0, metallic);
-    vec3 ambient = lightmapResponse * vanillaLight * materialAo * profile.ambientScale * LIGHTMAP_STRENGTH;
-    vec3 emission = color * profile.emissionStrength;
-    return ambient + lighting.direct + lighting.ambient + emission;
+    vec3 LightmapResponse = mix(Color * (vec3(1.0) - F0), F0, Metallic);
+    vec3 Ambient = LightmapResponse * VanillaLight * MaterialAo * Profile.AmbientScale * LIGHTMAP_STRENGTH;
+    vec3 Emission = Color * Profile.EmissionStrength;
+    return Ambient + Lighting.Direct + Lighting.Ambient + Emission;
 }
-
 
 #endif

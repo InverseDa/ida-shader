@@ -2,49 +2,60 @@
 #include "/lib/util/functions.glsl"
 #include "/lib/materials/materialData.glsl"
 #include "/lib/lighting/frame.glsl"
+
+// =============================================================================
+// Fragment Shader
+// =============================================================================
 #ifdef FRAGMENT_SHADER
+
 uniform sampler2D depthtex0;
 uniform sampler2D depthtex1;
 uniform sampler2D colortex0;
 uniform sampler2D colortex2;
 uniform sampler2D colortex5;
 uniform sampler2D colortex10;
-in vec4 texcoord;
+in vec4 Texcoord;
 #include "/lib/lighting/scene.glsl"
 #include "/lib/lighting/ssao.glsl"
 
 // Reading lightmap 9 and writing raw radiance 9 uses Iris's automatic flip.
 /* RENDERTARGETS: 4,10,9 */
 void main() {
-    vec2 uv = texcoord.st;
-    float depth = texture2D(depthtex0, uv).r;
-    vec3 color = texture2D(colortex0, uv).rgb;
-    vec3 normal = normalDecode(texture2D(colortex2, uv).rg);
-    vec4 material = fetchMaterialData(colortex5, uv);
-    bool isHand = isMaterial(material, MATERIAL_ID_HAND);
-    bool isSky = depth >= 0.999999;
-    bool jittered = !isSky && materialUsesTaaJitter(material);
-    vec3 viewPos = reconstructSurfaceViewPos(uv, depth, jittered);
-    vec3 worldPos = viewToWorldPos(viewPos, gbufferModelViewInverse);
-    if (!isSky && !isHand && !isMaterial(material, MATERIAL_ID_UNLIT)) {
-        float ao = getScreenSpaceAmbientOcclusion(viewPos, normal, jittered);
-        float transmissionVisibility;
-        float visibility = shadowMapping(worldPos, normal, 1.0, transmissionVisibility);
-        color = applySunDirectLight(color, normal, viewPos, worldPos, material, visibility, transmissionVisibility, ao,
-                                   texture2D(colortex9, uv).rgb);
+    vec2 Uv = Texcoord.st;
+    float Depth = texture2D(depthtex0, Uv).r;
+    vec3 Color = texture2D(colortex0, Uv).rgb;
+    vec3 Normal = NormalDecode(texture2D(colortex2, Uv).rg);
+    vec4 Material = FetchMaterialData(colortex5, Uv);
+    bool IsHand = IsMaterial(Material, MaterialIdHand);
+    bool IsSky = Depth >= 0.999999;
+    bool Jittered = !IsSky && MaterialUsesTaaJitter(Material);
+    vec3 ViewPos = ReconstructSurfaceViewPos(Uv, Depth, Jittered);
+    vec3 WorldPos = ViewToWorldPos(ViewPos, gbufferModelViewInverse);
+    if (!IsSky && !IsHand && !IsMaterial(Material, MaterialIdUnlit)) {
+        float Ao = GetScreenSpaceAmbientOcclusion(ViewPos, Normal, Jittered);
+        float TransmissionVisibility;
+        float Visibility = ShadowMapping(WorldPos, Normal, 1.0, TransmissionVisibility);
+        Color = ApplySunDirectLight(Color, Normal, ViewPos, WorldPos, Material, Visibility, TransmissionVisibility, Ao, texture2D(colortex9, Uv).rgb);
     }
-    if (isSky) color = getSkyRadiance(normalize(viewPos));
-    gl_FragData[0] = vec4(encodeOpaqueSnapshot(normalEncode(normal), isHand ? 1.0 : depth, jittered), 0.0, 1.0);
+    if (IsSky) Color = GetSkyRadiance(normalize(ViewPos));
+    gl_FragData[0] = vec4(EncodeOpaqueSnapshot(NormalEncode(Normal), IsHand ? 1.0 : Depth, Jittered), 0.0, 1.0);
     // Keep marks from cracks, glint and other effects drawn before deferred.
-    gl_FragData[1] = vec4(max(jittered ? 0.0 : 1.0, texture2D(colortex10, uv).r));
-    gl_FragData[2] = vec4(color, 1.0);
+    gl_FragData[1] = vec4(max(Jittered ? 0.0 : 1.0, texture2D(colortex10, Uv).r));
+    gl_FragData[2] = vec4(Color, 1.0);
 }
-#endif
+
+#endif // FRAGMENT_SHADER
+
+// =============================================================================
+// Vertex Shader
+// =============================================================================
 #ifdef VERTEX_SHADER
-out vec4 texcoord;
+
+out vec4 Texcoord;
 void main() {
     gl_Position = ftransform();
-    texcoord = gl_MultiTexCoord0;
-    setupFrameLighting();
+    Texcoord = gl_MultiTexCoord0;
+    SetupFrameLighting();
 }
-#endif
+
+#endif // VERTEX_SHADER

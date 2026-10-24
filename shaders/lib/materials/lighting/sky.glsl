@@ -2,72 +2,72 @@
 #define IDA_MATERIALS_LIGHTING_SKY_GLSL
 #include "/lib/lighting/specular_aa.glsl"
 
-float getSkyDirectionalBlend(vec3 viewDir, vec3 lightDir) {
-    return clamp(1.0 - dot(normalize(viewDir), normalize(lightDir)), 0.0, 1.0);
+float GetSkyDirectionalBlend(vec3 ViewDir, vec3 LightDir) {
+    return clamp(1.0 - dot(normalize(ViewDir), normalize(LightDir)), 0.0, 1.0);
 }
 
-vec3 getSunriseTint(float sunHeight) {
-    return mix(vec3(1.35, 0.78, 0.30), sunColor, smoothstep(0.18, 0.60, sunHeight));
+vec3 GetSunriseTint(float SunHeight) {
+    return mix(vec3(1.35, 0.78, 0.30), SunColor, smoothstep(0.18, 0.60, SunHeight));
 }
 
-vec3 getSkyBaseRadiance(vec3 viewDir) {
-    float dis2Sun = getSkyDirectionalBlend(viewDir, sunPosition);
-    float dis2Moon = getSkyDirectionalBlend(viewDir, moonPosition);
+vec3 GetSkyBaseRadiance(vec3 ViewDir) {
+    float Dis2Sun = GetSkyDirectionalBlend(ViewDir, sunPosition);
+    float Dis2Moon = GetSkyDirectionalBlend(ViewDir, moonPosition);
     // fog with sun color mix
-    float sunMixFactor = clamp(1.0 - dis2Sun, 0, 1) * (1.f - nightValue);
-    vec3 finalColor = mix(skyColor, sunColor, pow(sunMixFactor, 6));
+    float SunMixFactor = clamp(1.0 - Dis2Sun, 0, 1) * (1.F - NightValue);
+    vec3 FinalColor = mix(SkyColor, SunColor, pow(SunMixFactor, 6));
     // fog with moon color mix
-    float moonMixFactor = clamp(1.0 - dis2Moon, 0, 1) * nightValue;
-    finalColor = mix(finalColor, sunColor, pow(moonMixFactor, 5));
+    float MoonMixFactor = clamp(1.0 - Dis2Moon, 0, 1) * NightValue;
+    FinalColor = mix(FinalColor, SunColor, pow(MoonMixFactor, 5));
 
-    return finalColor;
+    return FinalColor;
 }
 
-vec3 getFilteredSkyDiskRadiance(vec3 viewDir, float variance) {
-    vec3 sunDir = normalize(sunPosition);
-    vec3 moonDir = normalize(moonPosition);
-    float dis2Sun = getSkyDirectionalBlend(viewDir, sunDir);
-    float dis2Moon = getSkyDirectionalBlend(viewDir, moonDir);
+vec3 GetFilteredSkyDiskRadiance(vec3 ViewDir, float Variance) {
+    vec3 SunDir = normalize(sunPosition);
+    vec3 MoonDir = normalize(moonPosition);
+    float Dis2Sun = GetSkyDirectionalBlend(ViewDir, SunDir);
+    float Dis2Moon = GetSkyDirectionalBlend(ViewDir, MoonDir);
 
-    float sunHeight = clamp(viewToWorldNormal(sunDir, gbufferModelViewInverse).y * 0.5 + 0.5, 0.0, 1.0);
-    float sunriseFade = mix(0.65, 0.95, smoothstep(0.25, 0.70, sunHeight));
-    vec3 sunriseTint = getSunriseTint(sunHeight);
-    float sunDisk = filteredDisk(dis2Sun, 0.0025, variance) * sunriseFade * (1.0 - nightValue);
-    float sunGlow = pow(clamp(1.0 - dis2Sun * 7.0, 0.0, 1.0), 4.0) * (1.0 - nightValue);
-    sunGlow *= mix(0.12, 0.045, smoothstep(0.25, 0.75, sunHeight));
-    float moonDisk = filteredDisk(dis2Moon, 0.0035, variance) * 0.22 * nightValue;
+    float SunHeight = clamp(ViewToWorldNormal(SunDir, gbufferModelViewInverse).y * 0.5 + 0.5, 0.0, 1.0);
+    float SunriseFade = mix(0.65, 0.95, smoothstep(0.25, 0.70, SunHeight));
+    vec3 SunriseTint = GetSunriseTint(SunHeight);
+    float SunDisk = FilteredDisk(Dis2Sun, 0.0025, Variance) * SunriseFade * (1.0 - NightValue);
+    float SunGlow = pow(clamp(1.0 - Dis2Sun * 7.0, 0.0, 1.0), 4.0) * (1.0 - NightValue);
+    SunGlow *= mix(0.12, 0.045, smoothstep(0.25, 0.75, SunHeight));
+    float MoonDisk = FilteredDisk(Dis2Moon, 0.0035, Variance) * 0.22 * NightValue;
 
-    return sunriseTint * (sunDisk + sunGlow) + sunColor * moonDisk;
+    return SunriseTint * (SunDisk + SunGlow) + SunColor * MoonDisk;
 }
 
-vec3 getSkyDiskRadiance(vec3 viewDir) {
-    return getFilteredSkyDiskRadiance(viewDir, 0.0);
+vec3 GetSkyDiskRadiance(vec3 ViewDir) {
+    return GetFilteredSkyDiskRadiance(ViewDir, 0.0);
 }
 
-vec3 getMaterialSkyReflection(vec3 viewDir, float roughness) {
+vec3 GetMaterialSkyReflection(vec3 ViewDir, float Roughness) {
     // The material roughness already contains the pixel's normal variance.
-    float alpha = roughness * roughness;
-    return getSkyBaseRadiance(viewDir) + getFilteredSkyDiskRadiance(viewDir, alpha * alpha * SPECULAR_AA);
+    float Alpha = Roughness * Roughness;
+    return GetSkyBaseRadiance(ViewDir) + GetFilteredSkyDiskRadiance(ViewDir, Alpha * Alpha * SPECULAR_AA);
 }
 
-vec3 getSkyRadiance(vec3 viewDir) {
-    return getSkyBaseRadiance(viewDir) + getSkyDiskRadiance(viewDir);
+vec3 GetSkyRadiance(vec3 ViewDir) {
+    return GetSkyBaseRadiance(ViewDir) + GetSkyDiskRadiance(ViewDir);
 }
 
-vec3 drawSky(vec3 color, vec3 viewPos, bool isSkySurface) {
-    float dis = length(viewPos) / far;
-    vec3 skyRadiance = getSkyRadiance(normalize(viewPos));
+vec3 DrawSky(vec3 Color, vec3 ViewPos, bool IsSkySurface) {
+    float Dis = length(ViewPos) / far;
+    vec3 SkyRadiance = GetSkyRadiance(normalize(ViewPos));
 
-    if (isSkySurface) {
-        return skyRadiance;
+    if (IsSkySurface) {
+        return SkyRadiance;
     }
 
-    float atmosphere = smoothstep(0.18, 1.0, dis);
-    return mix(color, skyRadiance, clamp(pow(atmosphere, 2.2) * 0.72, 0, 1));
+    float Atmosphere = smoothstep(0.18, 1.0, Dis);
+    return mix(Color, SkyRadiance, clamp(pow(Atmosphere, 2.2) * 0.72, 0, 1));
 }
 
-vec3 drawSky(vec3 color, vec3 viewPos) {
-    return drawSky(color, viewPos, false);
+vec3 DrawSky(vec3 Color, vec3 ViewPos) {
+    return DrawSky(Color, ViewPos, false);
 }
 
 #endif

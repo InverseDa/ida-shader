@@ -3,27 +3,27 @@
 #include "/lib/settings.glsl"
 
 // Evaluate derivatives before divergent screen-space material branches.
-float specularNormalVariance(vec3 normal) {
-    vec3 dx = dFdx(normal);
-    vec3 dy = dFdy(normal);
-    return min(0.15 * (dot(dx, dx) + dot(dy, dy)), 0.09) * SPECULAR_AA;
+float SpecularNormalVariance(vec3 Normal) {
+    vec3 Dx = dFdx(Normal);
+    vec3 Dy = dFdy(Normal);
+    return min(0.15 * (dot(Dx, Dx) + dot(Dy, Dy)), 0.09) * SPECULAR_AA;
 }
 
-float filterSpecularRoughness(float perceptualRoughness, float variance) {
-    float alpha = perceptualRoughness * perceptualRoughness;
-    return sqrt(sqrt(min(alpha * alpha + min(2.0 * variance, 0.18), 1.0)));
+float FilterSpecularRoughness(float PerceptualRoughness, float Variance) {
+    float Alpha = PerceptualRoughness * PerceptualRoughness;
+    return sqrt(sqrt(min(Alpha * Alpha + min(2.0 * Variance, 0.18), 1.0)));
 }
 
 // Broaden a cosine-power lobe while approximately preserving its integral.
 // Zero variance is the original lobe; a filtered peak can never grow.
-float filteredHighlight(float alignment, float exponent, float variance) {
-    float filteredExponent = exponent / (1.0 + exponent * variance);
-    float energy = (filteredExponent + 1.0) / (exponent + 1.0);
-    return pow(clamp(alignment, 0.0, 1.0), filteredExponent) * energy;
+float FilteredHighlight(float Alignment, float Exponent, float Variance) {
+    float FilteredExponent = Exponent / (1.0 + Exponent * Variance);
+    float Energy = (FilteredExponent + 1.0) / (Exponent + 1.0);
+    return pow(clamp(Alignment, 0.0, 1.0), FilteredExponent) * Energy;
 }
 
-float filteredDisk(float distanceToLight, float baseWidth, float variance) {
-    float width = baseWidth + min(variance, 0.18);
-    return (1.0 - smoothstep(0.0, width, distanceToLight)) * baseWidth / width;
+float FilteredDisk(float DistanceToLight, float BaseWidth, float Variance) {
+    float Width = BaseWidth + min(Variance, 0.18);
+    return (1.0 - smoothstep(0.0, Width, DistanceToLight)) * BaseWidth / Width;
 }
 #endif

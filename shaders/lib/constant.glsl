@@ -8,12 +8,12 @@
 #define WATER_FLAG vec4(0.0, 0.0, 1.0, 1.0)
 // =========================== Constant ===========================
 const int noiseTextureResolution = 256;
-const int shadowMapResolution = 2048;   // 阴影分辨率 默认 1024
+const int shadowMapResolution = 2048; // 阴影分辨率 默认 1024
 // Compare each depth texel before interpolation: five hardware PCF queries,
 // using the existing opaque shadow map, with no extra shadow target/mip chain.
 const bool shadowHardwareFiltering1 = true;
 const bool shadowtex1Nearest = false;
-const float	sunPathRotation	= 0.0;      // 太阳偏移角 默认 0
+const float sunPathRotation = 0.0; // 太阳偏移角 默认 0
 const int RGB16F = 0;
 const int colortex0Format = RGB16F;
 const int R16F = 0;
@@ -51,7 +51,7 @@ const bool colortex8Clear = false;
 const vec4 colortex8ClearColor = vec4(0.0, 0.0, 0.0, 0.0);
 const vec4 colortex5ClearColor = vec4(0.82, 0.04, 1.0, 0.0);
 // =========================== other values ===========================
-vec3 skyColorArr[] = vec3[24](vec3(0.46, 0.63, 0.78), // 0-1000
+vec3 SkyColorArr[] = vec3[24](vec3(0.46, 0.63, 0.78), // 0-1000
                               vec3(0.46, 0.63, 0.78), // 1000 - 2000
                               vec3(0.46, 0.63, 0.78), // 2000 - 3000
                               vec3(0.46, 0.63, 0.78), // 3000 - 4000
@@ -64,20 +64,20 @@ vec3 skyColorArr[] = vec3[24](vec3(0.46, 0.63, 0.78), // 0-1000
                               vec3(0.46, 0.63, 0.78), // 10000 - 11000
                               vec3(0.46, 0.63, 0.78), // 11000 - 12000
                               vec3(0.46, 0.63, 0.78), // 12000 - 13000
-                              vec3(0.02, 0.2, 0.27), // 13000 - 14000
-                              vec3(0.02, 0.2, 0.27), // 14000 - 15000
-                              vec3(0.02, 0.2, 0.27), // 15000 - 16000
-                              vec3(0.02, 0.2, 0.27), // 16000 - 17000
-                              vec3(0.02, 0.2, 0.27), // 17000 - 18000
-                              vec3(0.02, 0.2, 0.27), // 18000 - 19000
-                              vec3(0.02, 0.2, 0.27), // 19000 - 20000
-                              vec3(0.02, 0.2, 0.27), // 20000 - 21000
-                              vec3(0.02, 0.2, 0.27), // 21000 - 22000
-                              vec3(0.02, 0.2, 0.27), // 22000 - 23000
-                              vec3(0.02, 0.2, 0.27)  // 23000 - 24000(0)
+                              vec3(0.02, 0.2, 0.27),  // 13000 - 14000
+                              vec3(0.02, 0.2, 0.27),  // 14000 - 15000
+                              vec3(0.02, 0.2, 0.27),  // 15000 - 16000
+                              vec3(0.02, 0.2, 0.27),  // 16000 - 17000
+                              vec3(0.02, 0.2, 0.27),  // 17000 - 18000
+                              vec3(0.02, 0.2, 0.27),  // 18000 - 19000
+                              vec3(0.02, 0.2, 0.27),  // 19000 - 20000
+                              vec3(0.02, 0.2, 0.27),  // 20000 - 21000
+                              vec3(0.02, 0.2, 0.27),  // 21000 - 22000
+                              vec3(0.02, 0.2, 0.27),  // 22000 - 23000
+                              vec3(0.02, 0.2, 0.27)   // 23000 - 24000(0)
 );
 
-vec3 sunColorArr[] = vec3[24](vec3(2, 2, 1),       // 0-1000
+vec3 SunColorArr[] = vec3[24](vec3(2, 2, 1),       // 0-1000
                               vec3(2, 1.5, 1),     // 1000 - 2000
                               vec3(1, 1, 1),       // 2000 - 3000
                               vec3(1, 1, 1),       // 3000 - 4000

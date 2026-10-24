@@ -11,15 +11,19 @@
 #include "/lib/lighting/frame.glsl"
 #endif
 
+// =============================================================================
+// Fragment Shader
+// =============================================================================
 #ifdef FRAGMENT_SHADER
+
 #include "/lib/misc/water_medium.glsl"
 uniform sampler2D texture;
 uniform sampler2D lightmap;
-in vec4 color;
-in vec4 texcoord;
-in vec4 lmcoord;
-in vec3 normal;
-in vec3 viewPos;
+in vec4 Color;
+in vec4 Texcoord;
+in vec4 Lmcoord;
+in vec3 Normal;
+in vec3 ViewPos;
 #if defined(FORWARD_TRANSLUCENT) && !defined(GBUFFERS_HAND_WATER)
 #include "/lib/lighting/scene.glsl"
 #include "/lib/misc/atmosphere.glsl"
@@ -33,83 +37,82 @@ in vec3 viewPos;
 /* RENDERTARGETS: 0,2,5,9 */
 #endif
 void main() {
-    vec4 base = texture2D(texture, texcoord.st) * color;
+    vec4 Base = texture2D(texture, Texcoord.st) * Color;
 #if !defined(IDA_MATERIALS_PBR_GLSL) || MATERIAL_MODE == 0
-    if (base.a <= 0.001) discard;
+    if (Base.a <= 0.001) discard;
 #endif
-    vec3 vanillaLight = srgbToLinear(texture2D(lightmap, lmcoord.st).rgb);
-    vec3 albedo = srgbToLinear(base.rgb);
-    vec3 geometryNormal = safeNormal(normal);
-    vec4 material = packMaterialData(0.82, 0.04, 1.0,
+    vec3 VanillaLight = SrgbToLinear(texture2D(lightmap, Lmcoord.st).rgb);
+    vec3 Albedo = SrgbToLinear(Base.rgb);
+    vec3 GeometryNormal = SafeNormal(Normal);
 #if defined(GBUFFERS_HAND) || defined(GBUFFERS_HAND_WATER)
-        MATERIAL_ID_HAND
+    vec4 Material = PackMaterialData(0.82, 0.04, 1.0, MaterialIdHand);
 #else
-        MATERIAL_ID_DYNAMIC
+    vec4 Material = PackMaterialData(0.82, 0.04, 1.0, MaterialIdDynamic);
 #endif
-    );
-    material = withMaterialSkyLight(material, lmcoord.t);
+    Material = WithMaterialSkyLight(Material, Lmcoord.t);
 // Hands are intentionally Lightmap-only; sampling PBR here has no visible use.
 #if !defined(COLOR_ONLY) && !defined(PARTICLE) && !defined(GBUFFERS_HAND) && !defined(GBUFFERS_HAND_WATER)
-    PbrMaterialSample pbr = samplePbrMaterial(texcoord.st, geometryNormal, viewPos, material);
-    geometryNormal = pbr.normalView;
-    material = pbr.materialData;
+    PbrMaterialSample Pbr = SamplePbrMaterial(Texcoord.st, GeometryNormal, ViewPos, Material);
+    GeometryNormal = Pbr.NormalView;
+    Material = Pbr.MaterialData;
 #endif
     // Keep normal derivatives valid for alpha-tested edge helper invocations.
 #if defined(IDA_MATERIALS_PBR_GLSL) && MATERIAL_MODE == 1
-    if (base.a <= 0.001) discard;
+    if (Base.a <= 0.001) discard;
 #endif
 #if defined(GBUFFERS_HAND) || defined(GBUFFERS_HAND_WATER)
-    albedo *= vanillaLight;
-    if (isEyeInWater == 1) albedo = applyUnderwaterMedium(albedo, length(viewPos));
+    Albedo *= VanillaLight;
+    if (isEyeInWater == 1) Albedo = ApplyUnderwaterMedium(Albedo, length(ViewPos));
 #elif defined(FORWARD_TRANSLUCENT)
 #if defined(COLOR_ONLY) || defined(PARTICLE)
-    albedo *= vanillaLight;
+    Albedo *= VanillaLight;
 #else
-    vec3 worldPos = viewToWorldPos(viewPos, gbufferModelViewInverse);
-    float transmissionVisibility;
-    float visibility = shadowMapping(worldPos, geometryNormal, 1.0, transmissionVisibility);
-    albedo = applySunDirectLight(albedo, geometryNormal, viewPos, worldPos, material,
-             visibility, transmissionVisibility, 1.0, vanillaLight);
+    vec3 WorldPos = ViewToWorldPos(ViewPos, gbufferModelViewInverse);
+    float TransmissionVisibility;
+    float Visibility = ShadowMapping(WorldPos, GeometryNormal, 1.0, TransmissionVisibility);
+    Albedo = ApplySunDirectLight(Albedo, GeometryNormal, ViewPos, WorldPos, Material, Visibility, TransmissionVisibility, 1.0, VanillaLight);
 #endif
-    albedo = applyAtmosphere(albedo, viewPos, false);
+    Albedo = ApplyAtmosphere(Albedo, ViewPos, false);
 #else
-    gl_FragData[3] = vec4(vanillaLight, 1.0);
+    gl_FragData[3] = vec4(VanillaLight, 1.0);
 #endif
-    gl_FragData[0] = vec4(albedo, base.a);
+    gl_FragData[0] = vec4(Albedo, Base.a);
 #if defined(FORWARD_TRANSLUCENT)
-    gl_FragData[1] = vec4(max(base.a, 1.0 / 255.0));
+    gl_FragData[1] = vec4(max(Base.a, 1.0 / 255.0));
 #else
-    gl_FragData[1] = vec4(normalEncode(geometryNormal), 0.0, 1.0);
-    gl_FragData[2] = material;
+    gl_FragData[1] = vec4(NormalEncode(GeometryNormal), 0.0, 1.0);
+    gl_FragData[2] = Material;
 #if defined(GBUFFERS_HAND)
     // First-person hand rendering intentionally covers earlier world overlays.
     gl_FragData[3] = vec4(0.0);
 #endif
 #endif
 }
-#endif
+
+#endif // FRAGMENT_SHADER
 
 // =============================================================================
-// ============================== Vertex Shader ================================
+// Vertex Shader
 // =============================================================================
 #ifdef VERTEX_SHADER
 
-out vec4 color;
-out vec4 texcoord;
-out vec4 lmcoord;
-out vec3 normal;
-out vec3 viewPos;
+out vec4 Color;
+out vec4 Texcoord;
+out vec4 Lmcoord;
+out vec3 Normal;
+out vec3 ViewPos;
 
 void main() {
-  vec4 positionInView = gl_ModelViewMatrix * gl_Vertex;
-  viewPos = positionInView.xyz;
-  gl_Position = gl_ProjectionMatrix * positionInView;
+    vec4 PositionInView = gl_ModelViewMatrix * gl_Vertex;
+    ViewPos = PositionInView.xyz;
+    gl_Position = gl_ProjectionMatrix * PositionInView;
 #if defined(FORWARD_TRANSLUCENT) && !defined(GBUFFERS_HAND_WATER)
-  setupFrameLighting();
+    SetupFrameLighting();
 #endif
-  color = gl_Color;
-  texcoord = gl_TextureMatrix[0] * gl_MultiTexCoord0;
-  lmcoord = gl_TextureMatrix[1] * gl_MultiTexCoord1;
-  normal = gl_NormalMatrix * gl_Normal;
+    Color = gl_Color;
+    Texcoord = gl_TextureMatrix[0] * gl_MultiTexCoord0;
+    Lmcoord = gl_TextureMatrix[1] * gl_MultiTexCoord1;
+    Normal = gl_NormalMatrix * gl_Normal;
 }
-#endif
+
+#endif // VERTEX_SHADER

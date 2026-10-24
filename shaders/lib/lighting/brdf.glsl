@@ -3,71 +3,62 @@
 
 const float PI = 3.14159265;
 
-float DistributionGGX(float NoH, float roughness) {
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float denom = NoH * NoH * (a2 - 1.0) + 1.0;
+float DistributionGGX(float NoH, float Roughness) {
+    float A = Roughness * Roughness;
+    float A2 = A * A;
+    float Denom = NoH * NoH * (A2 - 1.0) + 1.0;
     // A large denominator epsilon made the sharpest lobes DARKER, so increasing
     // roughness could create a bright flash. Protect division separately from
     // a bounded HDR peak (the old curve's maximum was approximately 56).
-    return min(a2 / max(PI * denom * denom, 1e-12), 64.0);
+    return min(A2 / max(PI * Denom * Denom, 1e-12), 64.0);
 }
 
-float GeometrySchlickGGX(float NoV, float roughness) {
-    float r = roughness + 1.0;
-    float k = (r * r) / 8.0;
-    return NoV / max(NoV * (1.0 - k) + k, 0.0001);
+float GeometrySchlickGGX(float NoV, float Roughness) {
+    float R = Roughness + 1.0;
+    float K = (R * R) / 8.0;
+    return NoV / max(NoV * (1.0 - K) + K, 0.0001);
 }
 
-float GeometrySmith(float NoV, float NoL, float roughness) {
-    return GeometrySchlickGGX(NoV, roughness) * GeometrySchlickGGX(NoL, roughness);
+float GeometrySmith(float NoV, float NoL, float Roughness) {
+    return GeometrySchlickGGX(NoV, Roughness) * GeometrySchlickGGX(NoL, Roughness);
 }
 
-vec3 FresnelSchlick(float cosTheta, vec3 f0) {
+vec3 FresnelSchlick(float CosTheta, vec3 F0) {
     // Normalized dot products can round slightly above one. GLSL pow with a
     // negative base is undefined, even for the nominal integer exponent 5.
-    float grazing = 1.0 - clamp(cosTheta, 0.0, 1.0);
-    float grazing2 = grazing * grazing;
-    return f0 + (1.0 - f0) * (grazing2 * grazing2 * grazing);
+    float Grazing = 1.0 - clamp(CosTheta, 0.0, 1.0);
+    float Grazing2 = Grazing * Grazing;
+    return F0 + (1.0 - F0) * (Grazing2 * Grazing2 * Grazing);
 }
 
-vec3 FresnelSchlickRoughness(float cosTheta, vec3 f0, float roughness) {
-    vec3 oneMinusRoughness = vec3(1.0 - roughness);
-    float grazing = 1.0 - clamp(cosTheta, 0.0, 1.0);
-    float grazing2 = grazing * grazing;
-    return f0 + (max(oneMinusRoughness, f0) - f0) * (grazing2 * grazing2 * grazing);
+vec3 FresnelSchlickRoughness(float CosTheta, vec3 F0, float Roughness) {
+    vec3 OneMinusRoughness = vec3(1.0 - Roughness);
+    float Grazing = 1.0 - clamp(CosTheta, 0.0, 1.0);
+    float Grazing2 = Grazing * Grazing;
+    return F0 + (max(OneMinusRoughness, F0) - F0) * (Grazing2 * Grazing2 * Grazing);
 }
 
-vec3 EvaluateDirectionalBRDF(
-    vec3 albedo,
-    vec3 normal,
-    vec3 viewDir,
-    vec3 lightDir,
-    vec3 radiance,
-    float roughness,
-    float metallic,
-    vec3 f0
-) {
-    vec3 halfSum = viewDir + lightDir;
-    vec3 halfVector = halfSum * inversesqrt(max(dot(halfSum, halfSum), 1e-8));
-    float NoV = clamp(dot(normal, viewDir), 0.0001, 1.0);
-    float NoL = clamp(dot(normal, lightDir), 0.0, 1.0);
-    float NoH = clamp(dot(normal, halfVector), 0.0, 1.0);
-    float HoV = clamp(dot(halfVector, viewDir), 0.0, 1.0);
+vec3 EvaluateDirectionalBRDF(vec3 Albedo, vec3 Normal, vec3 ViewDir, vec3 LightDir, vec3 Radiance, float Roughness, float Metallic, vec3 F0) {
+    vec3 HalfSum = ViewDir + LightDir;
+    vec3 HalfVector = HalfSum * inversesqrt(max(dot(HalfSum, HalfSum), 1e-8));
+    float NoV = clamp(dot(Normal, ViewDir), 0.0001, 1.0);
+    float NoL = clamp(dot(Normal, LightDir), 0.0, 1.0);
+    float NoH = clamp(dot(Normal, HalfVector), 0.0, 1.0);
+    float HoV = clamp(dot(HalfVector, ViewDir), 0.0, 1.0);
 
-    vec3 fresnel = FresnelSchlick(HoV, f0);
-    float distribution = DistributionGGX(NoH, roughness);
-    float geometry = GeometrySmith(NoV, NoL, roughness);
+    vec3 Fresnel = FresnelSchlick(HoV, F0);
+    float Distribution = DistributionGGX(NoH, Roughness);
+    float Geometry = GeometrySmith(NoV, NoL, Roughness);
 
-    vec3 numerator = distribution * geometry * fresnel;
-    float denominator = max(4.0 * NoV * NoL, 0.0001);
-    vec3 specular = numerator / denominator;
+    vec3 Numerator = Distribution * Geometry * Fresnel;
+    float Denominator = max(4.0 * NoV * NoL, 0.0001);
+    vec3 Specular = Numerator / Denominator;
 
-    vec3 kS = fresnel;
-    vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
-    vec3 diffuse = kD * albedo / PI;
+    vec3 KS = Fresnel;
+    vec3 KD = (vec3(1.0) - KS) * (1.0 - Metallic);
+    vec3 Diffuse = KD * Albedo / PI;
 
-    return (diffuse + specular) * radiance * NoL;
+    return (Diffuse + Specular) * Radiance * NoL;
 }
 
 #endif

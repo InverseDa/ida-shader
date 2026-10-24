@@ -5,92 +5,66 @@
 #include "/lib/reflections/screenPlanar.glsl"
 
 struct SmoothSurfaceReflectionProfile {
-    float roughness;
-    float highlightVariance;
-    float reflectivity;
-    float reflectionVisibility;
-    float planarVisibility;
-    float skyDiskStrength;
-    float skyBrightness;
-    float sunGlareStrength;
-    vec3 reflectionTint;
-    float reflectionSaturation;
+    float Roughness;
+    float HighlightVariance;
+    float Reflectivity;
+    float ReflectionVisibility;
+    float PlanarVisibility;
+    float SkyDiskStrength;
+    float SkyBrightness;
+    float SunGlareStrength;
+    vec3 ReflectionTint;
+    float ReflectionSaturation;
 };
 
-SmoothSurfaceReflectionProfile createSmoothSurfaceReflectionProfile(
-    float roughness,
-    float reflectivity,
-    float reflectionVisibility,
-    float planarVisibility,
-    float skyDiskStrength,
-    float skyBrightness,
-    float sunGlareStrength,
-    vec3 reflectionTint,
-    float reflectionSaturation
-) {
-    SmoothSurfaceReflectionProfile profile;
-    profile.roughness = roughness;
-    profile.highlightVariance = 0.0;
-    profile.reflectivity = reflectivity;
-    profile.reflectionVisibility = reflectionVisibility;
-    profile.planarVisibility = planarVisibility;
-    profile.skyDiskStrength = skyDiskStrength;
-    profile.skyBrightness = skyBrightness;
-    profile.sunGlareStrength = sunGlareStrength;
-    profile.reflectionTint = reflectionTint;
-    profile.reflectionSaturation = reflectionSaturation;
-    return profile;
+SmoothSurfaceReflectionProfile CreateSmoothSurfaceReflectionProfile(float Roughness, float Reflectivity, float ReflectionVisibility, float PlanarVisibility, float SkyDiskStrength, float SkyBrightness, float SunGlareStrength, vec3 ReflectionTint, float ReflectionSaturation) {
+    SmoothSurfaceReflectionProfile Profile;
+    Profile.Roughness = Roughness;
+    Profile.HighlightVariance = 0.0;
+    Profile.Reflectivity = Reflectivity;
+    Profile.ReflectionVisibility = ReflectionVisibility;
+    Profile.PlanarVisibility = PlanarVisibility;
+    Profile.SkyDiskStrength = SkyDiskStrength;
+    Profile.SkyBrightness = SkyBrightness;
+    Profile.SunGlareStrength = SunGlareStrength;
+    Profile.ReflectionTint = ReflectionTint;
+    Profile.ReflectionSaturation = ReflectionSaturation;
+    return Profile;
 }
 
-vec3 getSmoothSurfaceSkyReflection(vec3 reflectDir, SmoothSurfaceReflectionProfile profile) {
-    vec3 viewDir = normalize(reflectDir);
-    vec3 skyBase = getSkyBaseRadiance(viewDir);
-    vec3 skyDisk = getFilteredSkyDiskRadiance(viewDir, profile.highlightVariance) * profile.skyDiskStrength;
-    vec3 radiance = (skyBase + skyDisk) * profile.skyBrightness;
-    float luminance = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
-    radiance = mix(vec3(luminance), radiance, profile.reflectionSaturation);
-    return radiance * profile.reflectionTint;
+vec3 GetSmoothSurfaceSkyReflection(vec3 ReflectDir, SmoothSurfaceReflectionProfile Profile) {
+    vec3 ViewDir = normalize(ReflectDir);
+    vec3 SkyBase = GetSkyBaseRadiance(ViewDir);
+    vec3 SkyDisk = GetFilteredSkyDiskRadiance(ViewDir, Profile.HighlightVariance) * Profile.SkyDiskStrength;
+    vec3 Radiance = (SkyBase + SkyDisk) * Profile.SkyBrightness;
+    float Luminance = dot(Radiance, vec3(0.2126, 0.7152, 0.0722));
+    Radiance = mix(vec3(Luminance), Radiance, Profile.ReflectionSaturation);
+    return Radiance * Profile.ReflectionTint;
 }
 
-vec3 resolveSmoothSurfaceColor(
-    vec3 baseColor,
-    vec3 worldPos,
-    vec3 viewPos,
-    vec3 worldNormal,
-    vec3 reflectDir,
-    SmoothSurfaceReflectionProfile profile
-) {
-    vec3 fallbackColor = getSmoothSurfaceSkyReflection(reflectDir, profile);
-    ReflectionResult reflection = createReflectionResult(fallbackColor, 0.0);
-    float surfaceReflectivity = clamp(profile.reflectivity, 0.0, 1.0);
+vec3 ResolveSmoothSurfaceColor(vec3 BaseColor, vec3 WorldPos, vec3 ViewPos, vec3 WorldNormal, vec3 ReflectDir, SmoothSurfaceReflectionProfile Profile) {
+    vec3 FallbackColor = GetSmoothSurfaceSkyReflection(ReflectDir, Profile);
+    ReflectionResult Reflection = CreateReflectionResult(FallbackColor, 0.0);
+    float SurfaceReflectivity = clamp(Profile.Reflectivity, 0.0, 1.0);
 
-    if (profile.planarVisibility > 0.0001 && profile.reflectivity > 0.0 &&
-        profile.reflectionVisibility > 0.0) {
-        reflection = resolveScreenPlanarReflection(
-            worldPos,
-            worldNormal,
-            reflectDir,
-            profile.roughness,
-            profile.planarVisibility * profile.reflectionVisibility,
-            surfaceReflectivity,
-            fallbackColor
-        );
+    if (Profile.PlanarVisibility > 0.0001 && Profile.Reflectivity > 0.0 && Profile.ReflectionVisibility > 0.0) {
+        Reflection = ResolveScreenPlanarReflection(WorldPos, WorldNormal, ReflectDir, Profile.Roughness, Profile.PlanarVisibility * Profile.ReflectionVisibility, SurfaceReflectivity, FallbackColor);
     }
 
-    vec3 finalColor = fallbackColor;
-    float reflectionBlend = reflection.confidence;
-    if (reflectionBlend > 0.0) {
-        vec3 reflectedColor = reflection.color * profile.reflectionTint;
-        float reflectedLuma = dot(reflectedColor, vec3(0.2126, 0.7152, 0.0722));
-        reflectedColor = mix(vec3(reflectedLuma), reflectedColor, profile.reflectionSaturation);
-        finalColor = mix(finalColor, reflectedColor, reflectionBlend);
+    vec3 FinalColor = FallbackColor;
+    float ReflectionBlend = Reflection.Confidence;
+    if (ReflectionBlend > 0.0) {
+        vec3 ReflectedColor = Reflection.Color * Profile.ReflectionTint;
+        float ReflectedLuma = dot(ReflectedColor, vec3(0.2126, 0.7152, 0.0722));
+        ReflectedColor = mix(vec3(ReflectedLuma), ReflectedColor, Profile.ReflectionSaturation);
+        FinalColor = mix(FinalColor, ReflectedColor, ReflectionBlend);
     }
 
     // Hit/miss confidence chooses scene versus sky, never the amount of base
     // color replaced by reflection. Fresnel/transmission keep the same budget.
-    finalColor = mix(baseColor, finalColor, surfaceReflectivity);
-    finalColor += getFilteredSkyDiskRadiance(normalize(reflectDir), profile.highlightVariance) * profile.sunGlareStrength * profile.reflectionTint;
-    return finalColor;
+    FinalColor = mix(BaseColor, FinalColor, SurfaceReflectivity);
+    FinalColor += GetFilteredSkyDiskRadiance(normalize(ReflectDir), Profile.HighlightVariance) * Profile.SunGlareStrength * Profile.ReflectionTint;
+    return FinalColor;
 }
 
 #endif

@@ -3,43 +3,47 @@
 #include "/lib/materials/materialData.glsl"
 
 // =============================================================================
-// ============================= Fragment Shader ===============================
+// Fragment Shader
 // =============================================================================
 #ifdef FRAGMENT_SHADER
+
 uniform sampler2D texture;
 
-in vec4 color;
-in vec4 texcoord;
-in float vertexToCameraDistance;
-in vec3 normal;
+in vec4 Color;
+in vec4 Texcoord;
+in float VertexToCameraDistance;
+in vec3 Normal;
 
 /* DRAWBUFFERS:025 */
 void main() {
-  // Vanilla cloud and sky geometry are replaced in composite.
-  gl_FragData[0] = vec4(0.0);
-  gl_FragData[1] = vec4(normalEncode(safeNormal(normal)), 0.0, 1.0);
-  gl_FragData[2] = getSkyMaterialData();
+    // Vanilla cloud and sky geometry are replaced in composite.
+    gl_FragData[0] = vec4(0.0);
+    gl_FragData[1] = vec4(NormalEncode(SafeNormal(Normal)), 0.0, 1.0);
+    gl_FragData[2] = GetSkyMaterialData();
 }
-#endif
+
+#endif // FRAGMENT_SHADER
 
 // =============================================================================
-// ============================== Vertex Shader ================================
+// Vertex Shader
 // =============================================================================
 #ifdef VERTEX_SHADER
-out vec4 color;
-out vec4 texcoord;
-out float vertexToCameraDistance;
-out vec3 normal;
+
+out vec4 Color;
+out vec4 Texcoord;
+out float VertexToCameraDistance;
+out vec3 Normal;
 
 void main() {
-  // position in camera(steve)
-  vec4 positionInView = gl_ModelViewMatrix * gl_Vertex;
-  gl_Position = gl_ProjectionMatrix * positionInView;
-  // the length from object vertex to camera center
-  vertexToCameraDistance = length(positionInView.xyz);
+    // position in camera(steve)
+    vec4 PositionInView = gl_ModelViewMatrix * gl_Vertex;
+    gl_Position = gl_ProjectionMatrix * PositionInView;
+    // the length from object vertex to camera center
+    VertexToCameraDistance = length(PositionInView.xyz);
 
-  color = gl_Color;
-  texcoord = gl_TextureMatrix[0] * gl_MultiTexCoord0;
-  normal = gl_NormalMatrix * gl_Normal;
+    Color = gl_Color;
+    Texcoord = gl_TextureMatrix[0] * gl_MultiTexCoord0;
+    Normal = gl_NormalMatrix * gl_Normal;
 }
-#endif
+
+#endif // VERTEX_SHADER

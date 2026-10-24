@@ -5,11 +5,11 @@
 // exactly over opaqueBackground, and attenuate (rather than erase) any layers
 // that have already changed that background. Bound transmission to keep the
 // source nonnegative, including strongly colored absorption and dark water.
-vec4 makeRefractiveLayer(vec3 resolved, vec3 opaqueBackground, float transmission) {
-    vec3 ratio = max(resolved, vec3(0.0)) / max(opaqueBackground, vec3(0.0001));
-    float keep = clamp(min(transmission, min(ratio.r, min(ratio.g, ratio.b))), 0.0, 0.95);
-    float alpha = 1.0 - keep;
-    return vec4(max(resolved - opaqueBackground * keep, vec3(0.0)) / alpha, alpha);
+vec4 MakeRefractiveLayer(vec3 Resolved, vec3 OpaqueBackground, float Transmission) {
+    vec3 Ratio = max(Resolved, vec3(0.0)) / max(OpaqueBackground, vec3(0.0001));
+    float Keep = clamp(min(Transmission, min(Ratio.r, min(Ratio.g, Ratio.b))), 0.0, 0.95);
+    float Alpha = 1.0 - Keep;
+    return vec4(max(Resolved - OpaqueBackground * Keep, vec3(0.0)) / Alpha, Alpha);
 }
 
 #endif

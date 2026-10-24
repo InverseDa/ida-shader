@@ -6,376 +6,305 @@
 #include "/lib/reflections/confidence.glsl"
 
 struct WaterPlaneData {
-    vec3 pointWorld;
-    vec3 normalWorld;
-    vec3 mirroredCameraWorld;
-    float levelHeight;
-    float planarWeight;
+    vec3 PointWorld;
+    vec3 NormalWorld;
+    vec3 MirroredCameraWorld;
+    float LevelHeight;
+    float PlanarWeight;
 };
 
 struct PlanarIntersectionData {
-    vec3 surfacePointWorld;
-    vec3 reflectedDirWorld;
-    float incidentAlignment;
+    vec3 SurfacePointWorld;
+    vec3 ReflectedDirWorld;
+    float IncidentAlignment;
 };
 
 struct PlanarProjectionData {
-    vec3 originWorld;
-    vec3 directionWorld;
-    vec3 lateralAxisWorld;
-    float lateralSpread;
-    float travelStart;
-    float travelEnd;
+    vec3 OriginWorld;
+    vec3 DirectionWorld;
+    vec3 LateralAxisWorld;
+    float LateralSpread;
+    float TravelStart;
+    float TravelEnd;
 };
 
 struct PlanarSamplingConfig {
-    int stepCount;
-    float distanceFadeMin;
-    float distanceFadeMax;
+    int StepCount;
+    float DistanceFadeMin;
+    float DistanceFadeMax;
 };
 
 struct PlanarSolveResult {
-    WaterPlaneData plane;
-    PlanarIntersectionData intersection;
-    PlanarProjectionData projection;
-    PlanarSamplingConfig sampling;
+    WaterPlaneData Plane;
+    PlanarIntersectionData Intersection;
+    PlanarProjectionData Projection;
+    PlanarSamplingConfig Sampling;
 };
 
 struct PlanarReflectionCandidate {
-    vec2 uv;
-    float quality;
-    float edgeConfidence;
+    vec2 Uv;
+    float Quality;
+    float EdgeConfidence;
 };
 
 struct PlanarReprojectedSample {
-    vec3 mirroredCandidateWorldPos;
-    vec3 sceneWorldPos;
-    vec3 sceneNormalWorld;
-    vec2 uv;
-    float depthError;
-    float reprojectionError;
-    float rayAlignment;
-    float normalAlignment;
-    float abovePlaneMask;
-    float edgeConfidence;
-    bool valid;
+    vec3 MirroredCandidateWorldPos;
+    vec3 SceneWorldPos;
+    vec3 SceneNormalWorld;
+    vec2 Uv;
+    float DepthError;
+    float ReprojectionError;
+    float RayAlignment;
+    float NormalAlignment;
+    float AbovePlaneMask;
+    float EdgeConfidence;
+    bool Valid;
 };
 
-float getPlanarViewSpaceDepth(vec3 viewPos) {
-    return -viewPos.z;
+float GetPlanarViewSpaceDepth(vec3 ViewPos) {
+    return -ViewPos.z;
 }
 
-vec3 getPlanarFallbackAxis(vec3 normalWorld) {
-    vec3 fallbackAxis = cross(normalWorld, vec3(0.0, 0.0, 1.0));
-    if (dot(fallbackAxis, fallbackAxis) < 0.0001) {
-        fallbackAxis = cross(normalWorld, vec3(1.0, 0.0, 0.0));
+vec3 GetPlanarFallbackAxis(vec3 NormalWorld) {
+    vec3 FallbackAxis = cross(NormalWorld, vec3(0.0, 0.0, 1.0));
+    if (dot(FallbackAxis, FallbackAxis) < 0.0001) {
+        FallbackAxis = cross(NormalWorld, vec3(1.0, 0.0, 0.0));
     }
-    return normalize(fallbackAxis);
+    return normalize(FallbackAxis);
 }
 
-vec3 samplePlanarReflectionColor(vec2 uv, float contribution) {
-    vec2 texel = vec2(1.0 / viewWidth, 1.0 / viewHeight);
-    vec2 centerUv = clamp(uv, texel * 1.5, vec2(1.0) - texel * 1.5);
+vec3 SamplePlanarReflectionColor(vec2 Uv, float Contribution) {
+    vec2 Texel = vec2(1.0 / viewWidth, 1.0 / viewHeight);
+    vec2 CenterUv = clamp(Uv, Texel * 1.5, vec2(1.0) - Texel * 1.5);
     // Explicit LOD: this helper runs inside divergent candidate branches.
-    vec3 center = textureLod(colortex9, centerUv, 0.0).rgb;
-    float filterAmount = reflectionFilterAmount(contribution);
-    if (filterAmount <= 0.0) return center;
-    vec3 neighbors = textureLod(colortex9, centerUv + vec2(texel.x, 0.0), 0.0).rgb;
-    neighbors += textureLod(colortex9, centerUv - vec2(texel.x, 0.0), 0.0).rgb;
-    neighbors += textureLod(colortex9, centerUv + vec2(0.0, texel.y), 0.0).rgb;
-    neighbors += textureLod(colortex9, centerUv - vec2(0.0, texel.y), 0.0).rgb;
-    return mix(center, center * 0.48 + neighbors * 0.13, filterAmount);
+    vec3 Center = textureLod(colortex9, CenterUv, 0.0).rgb;
+    float FilterAmount = ReflectionFilterAmount(Contribution);
+    if (FilterAmount <= 0.0) return Center;
+    vec3 Neighbors = textureLod(colortex9, CenterUv + vec2(Texel.x, 0.0), 0.0).rgb;
+    Neighbors += textureLod(colortex9, CenterUv - vec2(Texel.x, 0.0), 0.0).rgb;
+    Neighbors += textureLod(colortex9, CenterUv + vec2(0.0, Texel.y), 0.0).rgb;
+    Neighbors += textureLod(colortex9, CenterUv - vec2(0.0, Texel.y), 0.0).rgb;
+    return mix(Center, Center * 0.48 + Neighbors * 0.13, FilterAmount);
 }
 
-vec3 reflectPointAcrossPlane(vec3 point, vec3 planePoint, vec3 planeNormal) {
-    float signedDistance = dot(point - planePoint, planeNormal);
-    return point - planeNormal * (2.0 * signedDistance);
+vec3 ReflectPointAcrossPlane(vec3 Point, vec3 PlanePoint, vec3 PlaneNormal) {
+    float SignedDistance = dot(Point - PlanePoint, PlaneNormal);
+    return Point - PlaneNormal * (2.0 * SignedDistance);
 }
 
-vec3 reflectWorldPointAcrossPlane(vec3 worldPos, WaterPlaneData plane) {
-    return reflectPointAcrossPlane(worldPos, plane.pointWorld, plane.normalWorld);
+vec3 ReflectWorldPointAcrossPlane(vec3 WorldPos, WaterPlaneData Plane) {
+    return ReflectPointAcrossPlane(WorldPos, Plane.PointWorld, Plane.NormalWorld);
 }
 
-float intersectRayPlane(vec3 rayOrigin, vec3 rayDir, vec3 planePoint, vec3 planeNormal) {
-    float denom = dot(rayDir, planeNormal);
-    if (abs(denom) < 0.0001) {
+float IntersectRayPlane(vec3 RayOrigin, vec3 RayDir, vec3 PlanePoint, vec3 PlaneNormal) {
+    float Denom = dot(RayDir, PlaneNormal);
+    if (abs(Denom) < 0.0001) {
         return -1.0;
     }
 
-    return dot(planePoint - rayOrigin, planeNormal) / denom;
+    return dot(PlanePoint - RayOrigin, PlaneNormal) / Denom;
 }
 
-WaterPlaneData buildWaterPlaneData(vec3 worldPos, vec3 worldNormal, float roughness) {
-    WaterPlaneData plane;
-    plane.pointWorld = vec3(worldPos.x, floor((worldPos.y + cameraPosition.y) * 16.0 + 0.5) / 16.0 - cameraPosition.y, worldPos.z);
-    plane.normalWorld = normalize(worldNormal);
-    plane.levelHeight = plane.pointWorld.y;
-    plane.mirroredCameraWorld = reflectPointAcrossPlane(vec3(0.0), plane.pointWorld, plane.normalWorld);
+WaterPlaneData BuildWaterPlaneData(vec3 WorldPos, vec3 WorldNormal, float Roughness) {
+    WaterPlaneData Plane;
+    Plane.PointWorld = vec3(WorldPos.x, floor((WorldPos.y + cameraPosition.y) * 16.0 + 0.5) / 16.0 - cameraPosition.y, WorldPos.z);
+    Plane.NormalWorld = normalize(WorldNormal);
+    Plane.LevelHeight = Plane.PointWorld.y;
+    Plane.MirroredCameraWorld = ReflectPointAcrossPlane(vec3(0.0), Plane.PointWorld, Plane.NormalWorld);
 
-    float planarNormal = smoothstep(0.90, 0.98, abs(plane.normalWorld.y));
-    float planarRoughness = 1.0 - smoothstep(0.08, 0.22, roughness);
-    plane.planarWeight = planarNormal * planarRoughness;
-    return plane;
+    float PlanarNormal = smoothstep(0.90, 0.98, abs(Plane.NormalWorld.y));
+    float PlanarRoughness = 1.0 - smoothstep(0.08, 0.22, Roughness);
+    Plane.PlanarWeight = PlanarNormal * PlanarRoughness;
+    return Plane;
 }
 
-PlanarIntersectionData buildPlanarIntersectionData(
-    WaterPlaneData plane,
-    vec3 worldPos,
-    vec3 reflectDirWorld
-) {
-    PlanarIntersectionData intersection;
-    vec3 planeSamplePoint = vec3(worldPos.x, plane.levelHeight, worldPos.z);
-    vec3 mirroredViewRay = normalize(planeSamplePoint - plane.mirroredCameraWorld);
-    float hitDistance = intersectRayPlane(
-        plane.mirroredCameraWorld,
-        mirroredViewRay,
-        plane.pointWorld,
-        plane.normalWorld
-    );
+PlanarIntersectionData BuildPlanarIntersectionData(WaterPlaneData Plane, vec3 WorldPos, vec3 ReflectDirWorld) {
+    PlanarIntersectionData Intersection;
+    vec3 PlaneSamplePoint = vec3(WorldPos.x, Plane.LevelHeight, WorldPos.z);
+    vec3 MirroredViewRay = normalize(PlaneSamplePoint - Plane.MirroredCameraWorld);
+    float HitDistance = IntersectRayPlane(Plane.MirroredCameraWorld, MirroredViewRay, Plane.PointWorld, Plane.NormalWorld);
 
-    intersection.surfacePointWorld =
-        (hitDistance > 0.0) ? plane.mirroredCameraWorld + mirroredViewRay * hitDistance : planeSamplePoint;
-    intersection.reflectedDirWorld = normalize(mix(mirroredViewRay, reflectDirWorld, 0.65));
-    intersection.incidentAlignment = clamp(abs(dot(mirroredViewRay, plane.normalWorld)), 0.0, 1.0);
-    return intersection;
+    Intersection.SurfacePointWorld =
+        (HitDistance > 0.0) ? Plane.MirroredCameraWorld + MirroredViewRay * HitDistance : PlaneSamplePoint;
+    Intersection.ReflectedDirWorld = normalize(mix(MirroredViewRay, ReflectDirWorld, 0.65));
+    Intersection.IncidentAlignment = clamp(abs(dot(MirroredViewRay, Plane.NormalWorld)), 0.0, 1.0);
+    return Intersection;
 }
 
-PlanarProjectionData buildPlanarProjectionData(
-    WaterPlaneData plane,
-    PlanarIntersectionData intersection,
-    float roughness
-) {
-    PlanarProjectionData projection;
-    vec3 flattenedDirection = intersection.reflectedDirWorld -
-                             plane.normalWorld * dot(intersection.reflectedDirWorld, plane.normalWorld);
-    float flattenedLengthSq = dot(flattenedDirection, flattenedDirection);
-    vec3 travelAxisWorld = (flattenedLengthSq > 0.0001)
-        ? normalize(flattenedDirection)
-        : getPlanarFallbackAxis(plane.normalWorld);
+PlanarProjectionData BuildPlanarProjectionData(WaterPlaneData Plane, PlanarIntersectionData Intersection, float Roughness) {
+    PlanarProjectionData Projection;
+    vec3 FlattenedDirection = Intersection.ReflectedDirWorld -
+                              Plane.NormalWorld * dot(Intersection.ReflectedDirWorld, Plane.NormalWorld);
+    float FlattenedLengthSq = dot(FlattenedDirection, FlattenedDirection);
+    vec3 TravelAxisWorld = (FlattenedLengthSq > 0.0001)
+                               ? normalize(FlattenedDirection)
+                               : GetPlanarFallbackAxis(Plane.NormalWorld);
 
-    projection.originWorld = intersection.surfacePointWorld + plane.normalWorld * 0.02;
-    projection.directionWorld = intersection.reflectedDirWorld;
-    projection.lateralAxisWorld = normalize(cross(plane.normalWorld, travelAxisWorld));
-    projection.lateralSpread = mix(0.05, 0.28, roughness) *
-                               mix(0.55, 1.0, 1.0 - intersection.incidentAlignment);
-    projection.travelStart = mix(2.0, 4.5, plane.planarWeight);
-    projection.travelEnd = mix(56.0, 170.0, plane.planarWeight) *
-                           mix(0.80, 1.12, intersection.incidentAlignment) *
-                           mix(1.0, 0.78, roughness);
-    return projection;
+    Projection.OriginWorld = Intersection.SurfacePointWorld + Plane.NormalWorld * 0.02;
+    Projection.DirectionWorld = Intersection.ReflectedDirWorld;
+    Projection.LateralAxisWorld = normalize(cross(Plane.NormalWorld, TravelAxisWorld));
+    Projection.LateralSpread = mix(0.05, 0.28, Roughness) *
+                               mix(0.55, 1.0, 1.0 - Intersection.IncidentAlignment);
+    Projection.TravelStart = mix(2.0, 4.5, Plane.PlanarWeight);
+    Projection.TravelEnd = mix(56.0, 170.0, Plane.PlanarWeight) *
+                           mix(0.80, 1.12, Intersection.IncidentAlignment) *
+                           mix(1.0, 0.78, Roughness);
+    return Projection;
 }
 
-PlanarSamplingConfig buildPlanarSamplingConfig(WaterPlaneData plane, PlanarIntersectionData intersection) {
-    PlanarSamplingConfig sampling;
-    sampling.stepCount = 14;
-    sampling.distanceFadeMin = mix(42.0, 70.0, intersection.incidentAlignment);
-    sampling.distanceFadeMax = mix(150.0, 230.0, plane.planarWeight);
-    return sampling;
+PlanarSamplingConfig BuildPlanarSamplingConfig(WaterPlaneData Plane, PlanarIntersectionData Intersection) {
+    PlanarSamplingConfig Sampling;
+    Sampling.StepCount = 14;
+    Sampling.DistanceFadeMin = mix(42.0, 70.0, Intersection.IncidentAlignment);
+    Sampling.DistanceFadeMax = mix(150.0, 230.0, Plane.PlanarWeight);
+    return Sampling;
 }
 
-PlanarSolveResult solvePlanarReflection(
-    WaterPlaneData plane,
-    vec3 worldPos,
-    vec3 reflectDirWorld,
-    float roughness
-) {
-    PlanarSolveResult result;
-    result.plane = plane;
-    result.intersection = buildPlanarIntersectionData(result.plane, worldPos, reflectDirWorld);
-    result.projection = buildPlanarProjectionData(result.plane, result.intersection, roughness);
-    result.sampling = buildPlanarSamplingConfig(result.plane, result.intersection);
-    return result;
+PlanarSolveResult SolvePlanarReflection(WaterPlaneData Plane, vec3 WorldPos, vec3 ReflectDirWorld, float Roughness) {
+    PlanarSolveResult Result;
+    Result.Plane = Plane;
+    Result.Intersection = BuildPlanarIntersectionData(Result.Plane, WorldPos, ReflectDirWorld);
+    Result.Projection = BuildPlanarProjectionData(Result.Plane, Result.Intersection, Roughness);
+    Result.Sampling = BuildPlanarSamplingConfig(Result.Plane, Result.Intersection);
+    return Result;
 }
 
-PlanarReflectionCandidate createPlanarReflectionCandidate(vec2 uv, float quality, float edgeConfidence) {
-    PlanarReflectionCandidate candidate;
-    candidate.uv = uv;
-    candidate.quality = quality;
-    candidate.edgeConfidence = edgeConfidence;
-    return candidate;
+PlanarReflectionCandidate CreatePlanarReflectionCandidate(vec2 Uv, float Quality, float EdgeConfidence) {
+    PlanarReflectionCandidate Candidate;
+    Candidate.Uv = Uv;
+    Candidate.Quality = Quality;
+    Candidate.EdgeConfidence = EdgeConfidence;
+    return Candidate;
 }
 
-PlanarReprojectedSample createInvalidPlanarReprojectedSample(vec2 uv) {
-    PlanarReprojectedSample sample;
-    sample.mirroredCandidateWorldPos = vec3(0.0);
-    sample.sceneWorldPos = vec3(0.0);
-    sample.sceneNormalWorld = vec3(0.0, 1.0, 0.0);
-    sample.uv = uv;
-    sample.depthError = 999999.0;
-    sample.reprojectionError = 999999.0;
-    sample.rayAlignment = 0.0;
-    sample.normalAlignment = 0.0;
-    sample.abovePlaneMask = 0.0;
-    sample.edgeConfidence = 0.0;
-    sample.valid = false;
-    return sample;
+PlanarReprojectedSample CreateInvalidPlanarReprojectedSample(vec2 Uv) {
+    PlanarReprojectedSample Sample;
+    Sample.MirroredCandidateWorldPos = vec3(0.0);
+    Sample.SceneWorldPos = vec3(0.0);
+    Sample.SceneNormalWorld = vec3(0.0, 1.0, 0.0);
+    Sample.Uv = Uv;
+    Sample.DepthError = 999999.0;
+    Sample.ReprojectionError = 999999.0;
+    Sample.RayAlignment = 0.0;
+    Sample.NormalAlignment = 0.0;
+    Sample.AbovePlaneMask = 0.0;
+    Sample.EdgeConfidence = 0.0;
+    Sample.Valid = false;
+    return Sample;
 }
 
-PlanarReprojectedSample buildPlanarReprojectedSample(
-    WaterPlaneData plane,
-    PlanarIntersectionData intersection,
-    vec3 candidateWorldPos
-) {
-    PlanarReprojectedSample sample;
-    vec3 candidateViewPos = worldToViewPos(candidateWorldPos, gbufferModelView);
-    vec2 uv;
-    vec2 unjitteredUv;
-    vec4 opaque;
-    if (!projectAndSampleOpaque(candidateViewPos, uv, opaque, unjitteredUv)) {
-        return createInvalidPlanarReprojectedSample(uv);
+PlanarReprojectedSample BuildPlanarReprojectedSample(WaterPlaneData Plane, PlanarIntersectionData Intersection, vec3 CandidateWorldPos) {
+    PlanarReprojectedSample Sample;
+    vec3 CandidateViewPos = WorldToViewPos(CandidateWorldPos, gbufferModelView);
+    vec2 Uv;
+    vec2 UnjitteredUv;
+    vec4 Opaque;
+    if (!ProjectAndSampleOpaque(CandidateViewPos, Uv, Opaque, UnjitteredUv)) {
+        return CreateInvalidPlanarReprojectedSample(Uv);
     }
 
-    float edgeConfidence = reflectionEdgeConfidence(unjitteredUv);
-    if (edgeConfidence <= 0.0) return createInvalidPlanarReprojectedSample(uv);
+    float EdgeConfidence = ReflectionEdgeConfidence(UnjitteredUv);
+    if (EdgeConfidence <= 0.0) return CreateInvalidPlanarReprojectedSample(Uv);
 
-    float sceneDepth = opaque.b;
-    if (sceneDepth >= 0.999999) {
-        return createInvalidPlanarReprojectedSample(uv);
+    float SceneDepth = Opaque.b;
+    if (SceneDepth >= 0.999999) {
+        return CreateInvalidPlanarReprojectedSample(Uv);
     }
 
-    vec3 sceneViewPos = reconstructOpaqueViewPos(uv, opaque);
-    float depthError = abs(getPlanarViewSpaceDepth(candidateViewPos) - getPlanarViewSpaceDepth(sceneViewPos));
+    vec3 SceneViewPos = ReconstructOpaqueViewPos(Uv, Opaque);
+    float DepthError = abs(GetPlanarViewSpaceDepth(CandidateViewPos) - GetPlanarViewSpaceDepth(SceneViewPos));
     // At these limits the original masks are exactly zero. Reject before
     // world transforms, normal decoding, alignment work and HDR color reads.
-    if (depthError >= 9.5) return createInvalidPlanarReprojectedSample(uv);
-    vec3 sceneWorldPos = viewToWorldPos(sceneViewPos, gbufferModelViewInverse);
-    float reprojectionError = length(sceneWorldPos - candidateWorldPos);
-    if (reprojectionError >= 13.0) return createInvalidPlanarReprojectedSample(uv);
-    vec3 reflectedOffset = sceneWorldPos - intersection.surfacePointWorld;
-    vec3 reflectedSampleDir = reflectedOffset / max(length(reflectedOffset), 0.0001);
+    if (DepthError >= 9.5) return CreateInvalidPlanarReprojectedSample(Uv);
+    vec3 SceneWorldPos = ViewToWorldPos(SceneViewPos, gbufferModelViewInverse);
+    float ReprojectionError = length(SceneWorldPos - CandidateWorldPos);
+    if (ReprojectionError >= 13.0) return CreateInvalidPlanarReprojectedSample(Uv);
+    vec3 ReflectedOffset = SceneWorldPos - Intersection.SurfacePointWorld;
+    vec3 ReflectedSampleDir = ReflectedOffset / max(length(ReflectedOffset), 0.0001);
 
-    float sceneHeightAbovePlane = dot(sceneWorldPos - plane.pointWorld, plane.normalWorld);
-    float rayAlignment = clamp(dot(reflectedSampleDir, intersection.reflectedDirWorld), 0.0, 1.0);
-    if (sceneHeightAbovePlane <= -0.2 || rayAlignment <= 0.62) return createInvalidPlanarReprojectedSample(uv);
-    vec3 sceneNormalWorld = viewToWorldNormal(normalDecode(opaque.rg), gbufferModelViewInverse);
-    sample.mirroredCandidateWorldPos = candidateWorldPos;
-    sample.sceneWorldPos = sceneWorldPos;
-    sample.sceneNormalWorld = sceneNormalWorld;
-    sample.uv = uv;
-    sample.depthError = depthError;
-    sample.reprojectionError = reprojectionError;
-    sample.rayAlignment = rayAlignment;
-    sample.normalAlignment = clamp(dot(sceneNormalWorld, plane.normalWorld), 0.0, 1.0);
-    sample.abovePlaneMask = smoothstep(-0.2, 1.2, sceneHeightAbovePlane);
-    sample.edgeConfidence = edgeConfidence;
-    sample.valid = true;
-    return sample;
+    float SceneHeightAbovePlane = dot(SceneWorldPos - Plane.PointWorld, Plane.NormalWorld);
+    float RayAlignment = clamp(dot(ReflectedSampleDir, Intersection.ReflectedDirWorld), 0.0, 1.0);
+    if (SceneHeightAbovePlane <= -0.2 || RayAlignment <= 0.62) return CreateInvalidPlanarReprojectedSample(Uv);
+    vec3 SceneNormalWorld = ViewToWorldNormal(NormalDecode(Opaque.rg), gbufferModelViewInverse);
+    Sample.MirroredCandidateWorldPos = CandidateWorldPos;
+    Sample.SceneWorldPos = SceneWorldPos;
+    Sample.SceneNormalWorld = SceneNormalWorld;
+    Sample.Uv = Uv;
+    Sample.DepthError = DepthError;
+    Sample.ReprojectionError = ReprojectionError;
+    Sample.RayAlignment = RayAlignment;
+    Sample.NormalAlignment = clamp(dot(SceneNormalWorld, Plane.NormalWorld), 0.0, 1.0);
+    Sample.AbovePlaneMask = smoothstep(-0.2, 1.2, SceneHeightAbovePlane);
+    Sample.EdgeConfidence = EdgeConfidence;
+    Sample.Valid = true;
+    return Sample;
 }
 
-PlanarReflectionCandidate evaluatePlanarReprojectedSample(
-    WaterPlaneData plane,
-    PlanarIntersectionData intersection,
-    PlanarSamplingConfig sampling,
-    PlanarReprojectedSample sample,
-    float travelDistance
-) {
-    if (!sample.valid) {
-        return createPlanarReflectionCandidate(sample.uv, 0.0, 0.0);
+PlanarReflectionCandidate EvaluatePlanarReprojectedSample(WaterPlaneData Plane, PlanarIntersectionData Intersection, PlanarSamplingConfig Sampling, PlanarReprojectedSample Sample, float TravelDistance) {
+    if (!Sample.Valid) {
+        return CreatePlanarReflectionCandidate(Sample.Uv, 0.0, 0.0);
     }
 
-    float reprojectionMask = 1.0 - smoothstep(1.4, 13.0, sample.reprojectionError);
-    float depthMask = 1.0 - smoothstep(0.90, 9.5, sample.depthError);
-    float distanceFade = 1.0 - smoothstep(sampling.distanceFadeMin, sampling.distanceFadeMax, travelDistance);
-    float rayMask = smoothstep(0.62, 0.94, sample.rayAlignment);
-    float normalMask = mix(1.0, smoothstep(0.08, 0.55, sample.normalAlignment), plane.planarWeight * 0.6);
-    float grazingBoost = clamp(mix(0.75, 1.10, intersection.incidentAlignment), 0.0, 1.0);
-    float stabilityMask = smoothstep(0.18, 0.72, reprojectionMask * depthMask);
-    float quality = plane.planarWeight * sample.abovePlaneMask * stabilityMask *
-                    depthMask * distanceFade * rayMask * normalMask *
-                    mix(0.68, 1.04, grazingBoost);
-    return createPlanarReflectionCandidate(sample.uv, clamp(quality, 0.0, 1.0), sample.edgeConfidence);
+    float ReprojectionMask = 1.0 - smoothstep(1.4, 13.0, Sample.ReprojectionError);
+    float DepthMask = 1.0 - smoothstep(0.90, 9.5, Sample.DepthError);
+    float DistanceFade = 1.0 - smoothstep(Sampling.DistanceFadeMin, Sampling.DistanceFadeMax, TravelDistance);
+    float RayMask = smoothstep(0.62, 0.94, Sample.RayAlignment);
+    float NormalMask = mix(1.0, smoothstep(0.08, 0.55, Sample.NormalAlignment), Plane.PlanarWeight * 0.6);
+    float GrazingBoost = clamp(mix(0.75, 1.10, Intersection.IncidentAlignment), 0.0, 1.0);
+    float StabilityMask = smoothstep(0.18, 0.72, ReprojectionMask * DepthMask);
+    float Quality = Plane.PlanarWeight * Sample.AbovePlaneMask * StabilityMask *
+                    DepthMask * DistanceFade * RayMask * NormalMask *
+                    mix(0.68, 1.04, GrazingBoost);
+    return CreatePlanarReflectionCandidate(Sample.Uv, clamp(Quality, 0.0, 1.0), Sample.EdgeConfidence);
 }
 
-PlanarReflectionCandidate samplePlanarReflectionAtPosition(
-    PlanarSolveResult solveResult,
-    vec3 candidateWorldPos,
-    float travelDistance
-) {
-    PlanarReprojectedSample sample = buildPlanarReprojectedSample(
-        solveResult.plane,
-        solveResult.intersection,
-        candidateWorldPos
-    );
-    return evaluatePlanarReprojectedSample(
-        solveResult.plane,
-        solveResult.intersection,
-        solveResult.sampling,
-        sample,
-        travelDistance
-    );
+PlanarReflectionCandidate SamplePlanarReflectionAtPosition(PlanarSolveResult SolveResult, vec3 CandidateWorldPos, float TravelDistance) {
+    PlanarReprojectedSample Sample = BuildPlanarReprojectedSample(SolveResult.Plane, SolveResult.Intersection, CandidateWorldPos);
+    return EvaluatePlanarReprojectedSample(SolveResult.Plane, SolveResult.Intersection, SolveResult.Sampling, Sample, TravelDistance);
 }
 
-void accumulatePlanarReflectionCandidate(
-    PlanarReflectionCandidate candidate,
-    float sideWeight,
-    float visibility,
-    float reflectivity,
-    inout vec3 accumulatedColor,
-    inout float accumulatedWeight,
-    inout float accumulatedConfidence
-) {
-    float score = candidate.quality * candidate.edgeConfidence * sideWeight;
-    float sampleWeight = reflectionCandidateWeight(score);
-    if (sampleWeight <= 0.0) return;
-    float confidence = reflectionCandidateConfidence(candidate.quality, candidate.edgeConfidence, visibility);
-    vec3 color = samplePlanarReflectionColor(candidate.uv, confidence * reflectivity);
-    accumulatedColor += color * sampleWeight;
-    accumulatedWeight += sampleWeight;
-    accumulatedConfidence += confidence * sampleWeight;
+void AccumulatePlanarReflectionCandidate(PlanarReflectionCandidate Candidate, float SideWeight, float Visibility, float Reflectivity, inout vec3 AccumulatedColor, inout float AccumulatedWeight, inout float AccumulatedConfidence) {
+    float Score = Candidate.Quality * Candidate.EdgeConfidence * SideWeight;
+    float SampleWeight = ReflectionCandidateWeight(Score);
+    if (SampleWeight <= 0.0) return;
+    float Confidence = ReflectionCandidateConfidence(Candidate.Quality, Candidate.EdgeConfidence, Visibility);
+    vec3 Color = SamplePlanarReflectionColor(Candidate.Uv, Confidence * Reflectivity);
+    AccumulatedColor += Color * SampleWeight;
+    AccumulatedWeight += SampleWeight;
+    AccumulatedConfidence += Confidence * SampleWeight;
 }
 
-ReflectionResult samplePlanarReflectionCandidate(
-    PlanarSolveResult solveResult,
-    float visibility,
-    float reflectivity,
-    vec3 fallbackColor
-) {
-    vec3 accumulatedColor = vec3(0.0);
-    float accumulatedWeight = 0.0;
-    float accumulatedConfidence = 0.0;
+ReflectionResult SamplePlanarReflectionCandidate(PlanarSolveResult SolveResult, float Visibility, float Reflectivity, vec3 FallbackColor) {
+    vec3 AccumulatedColor = vec3(0.0);
+    float AccumulatedWeight = 0.0;
+    float AccumulatedConfidence = 0.0;
 
-    for (int i = 0; i < solveResult.sampling.stepCount; i++) {
-        float t = (float(i) + 0.5) / float(solveResult.sampling.stepCount);
-        float travelDistance = mix(solveResult.projection.travelStart, solveResult.projection.travelEnd, t);
-        vec3 candidateWorldPos = solveResult.projection.originWorld +
-                                 solveResult.projection.directionWorld * travelDistance;
-        PlanarReflectionCandidate candidate = samplePlanarReflectionAtPosition(
-            solveResult,
-            candidateWorldPos,
-            travelDistance
-        );
-        accumulatePlanarReflectionCandidate(candidate, 1.0, visibility, reflectivity,
-            accumulatedColor, accumulatedWeight, accumulatedConfidence);
+    for (int I = 0; I < SolveResult.Sampling.StepCount; I++) {
+        float T = (float(I) + 0.5) / float(SolveResult.Sampling.StepCount);
+        float TravelDistance = mix(SolveResult.Projection.TravelStart, SolveResult.Projection.TravelEnd, T);
+        vec3 CandidateWorldPos = SolveResult.Projection.OriginWorld +
+                                 SolveResult.Projection.DirectionWorld * TravelDistance;
+        PlanarReflectionCandidate Candidate = SamplePlanarReflectionAtPosition(SolveResult, CandidateWorldPos, TravelDistance);
+        AccumulatePlanarReflectionCandidate(Candidate, 1.0, Visibility, Reflectivity, AccumulatedColor, AccumulatedWeight, AccumulatedConfidence);
 
-        if (i > 0 && i < solveResult.sampling.stepCount - 1) {
-            float sideSign = (mod(float(i), 2.0) < 0.5) ? -1.0 : 1.0;
-            float lateralAmount = solveResult.projection.lateralSpread * mix(0.22, 0.58, t);
-            vec3 sideCandidateWorldPos = candidateWorldPos +
-                                         solveResult.projection.lateralAxisWorld * lateralAmount * sideSign;
-            PlanarReflectionCandidate sideCandidate = samplePlanarReflectionAtPosition(
-                solveResult,
-                sideCandidateWorldPos,
-                travelDistance
-            );
-            accumulatePlanarReflectionCandidate(sideCandidate, 0.58, visibility, reflectivity,
-                accumulatedColor, accumulatedWeight, accumulatedConfidence);
+        if (I > 0 && I < SolveResult.Sampling.StepCount - 1) {
+            float SideSign = (mod(float(I), 2.0) < 0.5) ? -1.0 : 1.0;
+            float LateralAmount = SolveResult.Projection.LateralSpread * mix(0.22, 0.58, T);
+            vec3 SideCandidateWorldPos = CandidateWorldPos +
+                                         SolveResult.Projection.LateralAxisWorld * LateralAmount * SideSign;
+            PlanarReflectionCandidate SideCandidate = SamplePlanarReflectionAtPosition(SolveResult, SideCandidateWorldPos, TravelDistance);
+            AccumulatePlanarReflectionCandidate(SideCandidate, 0.58, Visibility, Reflectivity, AccumulatedColor, AccumulatedWeight, AccumulatedConfidence);
         }
     }
 
-    if (accumulatedWeight <= 0.0) return createReflectionResult(fallbackColor, 0.0);
-    vec3 resolvedColor = accumulatedColor / max(accumulatedWeight, 1e-8);
-    float confidence = reflectionResolveConfidence(accumulatedConfidence, accumulatedWeight);
-    return createReflectionResult(resolvedColor, confidence);
+    if (AccumulatedWeight <= 0.0) return CreateReflectionResult(FallbackColor, 0.0);
+    vec3 ResolvedColor = AccumulatedColor / max(AccumulatedWeight, 1e-8);
+    float Confidence = ReflectionResolveConfidence(AccumulatedConfidence, AccumulatedWeight);
+    return CreateReflectionResult(ResolvedColor, Confidence);
 }
 
-PlanarSolveResult solvePlanarWaterReflection(
-    vec3 worldPos,
-    vec3 worldNormal,
-    vec3 reflectDirWorld,
-    float roughness
-) {
-    return solvePlanarReflection(buildWaterPlaneData(worldPos, worldNormal, roughness),
-                                worldPos, reflectDirWorld, roughness);
+PlanarSolveResult SolvePlanarWaterReflection(vec3 WorldPos, vec3 WorldNormal, vec3 ReflectDirWorld, float Roughness) {
+    return SolvePlanarReflection(BuildWaterPlaneData(WorldPos, WorldNormal, Roughness), WorldPos, ReflectDirWorld, Roughness);
 }
 
 #endif

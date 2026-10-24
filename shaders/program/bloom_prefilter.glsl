@@ -1,13 +1,14 @@
 #include "/lib/constant.glsl"
 #include "/lib/post/bloom.glsl"
 
-// =====================================================================================
-// ============================== Fragment Shader ======================================
-// =====================================================================================
+// =============================================================================
+// Fragment Shader
+// =============================================================================
 #ifdef FRAGMENT_SHADER
+
 uniform sampler2D colortex0;
 
-in vec4 texcoord;
+in vec4 Texcoord;
 
 /* DRAWBUFFERS:6 */
 void main() {
@@ -16,18 +17,21 @@ void main() {
         gl_FragData[0] = vec4(0.0, 0.0, 0.0, 1.0);
         return;
     }
-    gl_FragData[0] = vec4(prefilterBloom(colortex0, texcoord.st), 1.0);
+    gl_FragData[0] = vec4(PrefilterBloom(colortex0, Texcoord.st), 1.0);
 }
-#endif
 
-// =====================================================================================
-// =============================== Vertex Shader =======================================
-// =====================================================================================
+#endif // FRAGMENT_SHADER
+
+// =============================================================================
+// Vertex Shader
+// =============================================================================
 #ifdef VERTEX_SHADER
-out vec4 texcoord;
+
+out vec4 Texcoord;
 
 void main() {
     gl_Position = ftransform();
-    texcoord = gl_MultiTexCoord0;
+    Texcoord = gl_MultiTexCoord0;
 }
-#endif
+
+#endif // VERTEX_SHADER

@@ -1,13 +1,14 @@
 #include "/lib/constant.glsl"
 #include "/lib/post/bloom.glsl"
 
-// =====================================================================================
-// ============================== Fragment Shader ======================================
-// =====================================================================================
+// =============================================================================
+// Fragment Shader
+// =============================================================================
 #ifdef FRAGMENT_SHADER
+
 uniform sampler2D colortex6;
 
-in vec4 texcoord;
+in vec4 Texcoord;
 
 /* DRAWBUFFERS:7 */
 void main() {
@@ -16,18 +17,21 @@ void main() {
         return;
     }
     // Positive normalized weights preserve the prefilter's finite HDR bound.
-    gl_FragData[0] = vec4(blurBloom(colortex6, texcoord.st), 1.0);
+    gl_FragData[0] = vec4(BlurBloom(colortex6, Texcoord.st), 1.0);
 }
-#endif
 
-// =====================================================================================
-// =============================== Vertex Shader =======================================
-// =====================================================================================
+#endif // FRAGMENT_SHADER
+
+// =============================================================================
+// Vertex Shader
+// =============================================================================
 #ifdef VERTEX_SHADER
-out vec4 texcoord;
+
+out vec4 Texcoord;
 
 void main() {
     gl_Position = ftransform();
-    texcoord = gl_MultiTexCoord0;
+    Texcoord = gl_MultiTexCoord0;
 }
-#endif
+
+#endif // VERTEX_SHADER

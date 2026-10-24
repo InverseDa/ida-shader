@@ -4,11 +4,15 @@
 #include "/lib/settings.glsl"
 #include "/lib/materials/materialData.glsl"
 
+// =============================================================================
+// Fragment Shader
+// =============================================================================
 #ifdef FRAGMENT_SHADER
+
 struct PbrMaterialSample {
-    vec3 normalView;
-    vec4 materialData;
-    float normalVariance;
+    vec3 NormalView;
+    vec4 MaterialData;
+    float NormalVariance;
 };
 
 #if MATERIAL_MODE == 1
@@ -16,78 +20,72 @@ struct PbrMaterialSample {
 uniform sampler2D normals;
 uniform sampler2D specular;
 
-vec3 getCotangentFrameNormal(vec3 geometryNormalView, vec3 viewPos, vec2 uv, vec3 tangentNormal) {
-    vec3 n = normalize(geometryNormalView);
-    vec3 dp1 = dFdx(viewPos);
-    vec3 dp2 = dFdy(viewPos);
-    vec2 duv1 = dFdx(uv);
-    vec2 duv2 = dFdy(uv);
+vec3 GetCotangentFrameNormal(vec3 GeometryNormalView, vec3 ViewPos, vec2 Uv, vec3 TangentNormal) {
+    vec3 N = normalize(GeometryNormalView);
+    vec3 Dp1 = dFdx(ViewPos);
+    vec3 Dp2 = dFdy(ViewPos);
+    vec2 Duv1 = dFdx(Uv);
+    vec2 Duv2 = dFdy(Uv);
 
-    vec3 tangent = dp1 * duv2.t - dp2 * duv1.t;
-    vec3 bitangent = -dp1 * duv2.s + dp2 * duv1.s;
-    float frameLength = max(dot(tangent, tangent), dot(bitangent, bitangent));
-    float determinant = duv1.s * duv2.t - duv1.t * duv2.s;
+    vec3 Tangent = Dp1 * Duv2.t - Dp2 * Duv1.t;
+    vec3 Bitangent = -Dp1 * Duv2.s + Dp2 * Duv1.s;
+    float FrameLength = max(dot(Tangent, Tangent), dot(Bitangent, Bitangent));
+    float Determinant = Duv1.s * Duv2.t - Duv1.t * Duv2.s;
 
-    if (frameLength < 1e-24 || abs(determinant) < 1e-20) {
-        return n;
+    if (FrameLength < 1e-24 || abs(Determinant) < 1e-20) {
+        return N;
     }
 
-    float invMax = sign(determinant) * inversesqrt(frameLength);
+    float InvMax = sign(Determinant) * inversesqrt(FrameLength);
     // The derivative bitangent follows increasing atlas V (downwards),
     // matching LabPBR's DirectX Y convention; do not invert Y again.
-    mat3 tbn = mat3(tangent * invMax, bitangent * invMax, n);
-    vec3 mappedNormal = tbn * tangentNormal;
-    float mappedLengthSquared = dot(mappedNormal, mappedNormal);
+    mat3 Tbn = mat3(Tangent * InvMax, Bitangent * InvMax, N);
+    vec3 MappedNormal = Tbn * TangentNormal;
+    float MappedLengthSquared = dot(MappedNormal, MappedNormal);
     // Nonzero UV derivatives do not guarantee independent geometry tangents.
     // Collapsed geometry can cancel a grazing normal; never normalize zero
     // (or a non-finite result) into the G-buffer and specular-AA derivatives.
-    if (!(mappedLengthSquared > 1e-12) || isinf(mappedLengthSquared)) {
-        return n;
+    if (!(MappedLengthSquared > 1e-12) || isinf(MappedLengthSquared)) {
+        return N;
     }
-    return mappedNormal * inversesqrt(mappedLengthSquared);
+    return MappedNormal * inversesqrt(MappedLengthSquared);
 }
 
-float labPbrNormalZ(float xyLengthSquared) {
-    return sqrt(max(1.0 - xyLengthSquared, 0.0));
+float LabPbrNormalZ(float XyLengthSquared) {
+    return sqrt(max(1.0 - XyLengthSquared, 0.0));
 }
 
-float labPbrPerceptualRoughness(float smoothness) {
+float LabPbrPerceptualRoughness(float Smoothness) {
     // BRDF converts this perceptual value to alpha by squaring once.
     // Keep a finite base lobe even when the normal variance is zero.
-    return clamp(1.0 - smoothness, 0.08, 1.0);
+    return clamp(1.0 - Smoothness, 0.08, 1.0);
 }
 #endif
 
-PbrMaterialSample samplePbrMaterial(
-    vec2 uv,
-    vec3 geometryNormalView,
-    vec3 viewPos,
-    vec4 fallbackMaterialData
-) {
-    PbrMaterialSample result;
-    result.normalView = normalize(geometryNormalView);
-    result.materialData = fallbackMaterialData;
-    result.normalVariance = 0.0;
+PbrMaterialSample SamplePbrMaterial(vec2 Uv, vec3 GeometryNormalView, vec3 ViewPos, vec4 FallbackMaterialData) {
+    PbrMaterialSample Result;
+    Result.NormalView = normalize(GeometryNormalView);
+    Result.MaterialData = FallbackMaterialData;
+    Result.NormalVariance = 0.0;
 #if MATERIAL_MODE == 1
-    vec3 normalSample = texture2D(normals, uv).rgb;
-    vec2 xy = normalSample.rg * 2.0 - 1.0;
-    float xyLength = dot(xy, xy);
+    vec3 NormalSample = texture2D(normals, Uv).rgb;
+    vec2 Xy = NormalSample.rg * 2.0 - 1.0;
+    float XyLength = dot(Xy, Xy);
     // Invalid XY (including absent black/white normal textures) uses geometry.
     // AO is independent of the normal direction, including a legitimate B=0.
-    bool validNormal = xyLength <= 1.02;
-    vec3 tangentNormal = validNormal ? normalize(vec3(xy, labPbrNormalZ(xyLength))) : vec3(0.0, 0.0, 1.0);
+    bool ValidNormal = XyLength <= 1.02;
+    vec3 TangentNormal = ValidNormal ? normalize(vec3(Xy, LabPbrNormalZ(XyLength))) : vec3(0.0, 0.0, 1.0);
     // Evaluate derivatives for all fragments, outside texture-dependent branches.
-    result.normalView = getCotangentFrameNormal(geometryNormalView, viewPos, uv, tangentNormal);
-    result.normalVariance = specularNormalVariance(result.normalView);
-    vec4 specularData = texture2D(specular, uv);
-    result.materialData.r = filterSpecularRoughness(labPbrPerceptualRoughness(specularData.r),
-                                                   result.normalVariance);
-    result.materialData.g = specularData.g;
-    result.materialData.b = validNormal ? normalSample.b : getMaterialAO(fallbackMaterialData);
+    Result.NormalView = GetCotangentFrameNormal(GeometryNormalView, ViewPos, Uv, TangentNormal);
+    Result.NormalVariance = SpecularNormalVariance(Result.NormalView);
+    vec4 SpecularData = texture2D(specular, Uv);
+    Result.MaterialData.r = FilterSpecularRoughness(LabPbrPerceptualRoughness(SpecularData.r), Result.NormalVariance);
+    Result.MaterialData.g = SpecularData.g;
+    Result.MaterialData.b = ValidNormal ? NormalSample.b : GetMaterialAO(FallbackMaterialData);
     // Black/white specular pixels are valid data, not missing-texture sentinels.
     // Alpha, porosity/SSS and height are deferred to later material extensions.
 #endif
-    return result;
+    return Result;
 }
 #endif
 

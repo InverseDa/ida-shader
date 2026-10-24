@@ -3,60 +3,60 @@
 #include "/lib/settings.glsl"
 #include "/lib/common/color.glsl"
 
-vec3 sampleAaColor(vec2 uv) {
-    vec2 halfTexel = 0.5 / vec2(textureSize(colortex0, 0));
-    return sanitizeRadiance(texture2D(colortex0, clamp(uv, halfTexel, vec2(1.0) - halfTexel)).rgb);
+vec3 SampleAaColor(vec2 Uv) {
+    vec2 HalfTexel = 0.5 / vec2(textureSize(colortex0, 0));
+    return SanitizeRadiance(texture2D(colortex0, clamp(Uv, HalfTexel, vec2(1.0) - HalfTexel)).rgb);
 }
 
-float aaLuminance(vec3 color) {
-    return dot(color, vec3(0.299, 0.587, 0.114));
+float AaLuminance(vec3 Color) {
+    return dot(Color, vec3(0.299, 0.587, 0.114));
 }
 
-vec3 aaCompress(vec3 color) {
-    color = max(color, vec3(0.0));
-    return color / (1.0 + aaLuminance(color));
+vec3 AaCompress(vec3 Color) {
+    Color = max(Color, vec3(0.0));
+    return Color / (1.0 + AaLuminance(Color));
 }
 
-vec3 aaExpand(vec3 color) {
-    return color / max(1.0 - aaLuminance(color), 1.0 / 65504.0);
+vec3 AaExpand(vec3 Color) {
+    return Color / max(1.0 - AaLuminance(Color), 1.0 / 65504.0);
 }
 
-float aaLuma(vec3 color) {
-    return aaLuminance(aaCompress(color));
+float AaLuma(vec3 Color) {
+    return AaLuminance(AaCompress(Color));
 }
 
 // Four cardinal reads detect thin lines that the old diagonal-only kernel
 // missed. At most four more directional reads; all taps stay in the 3x3 support
 // protected by reactive dilation. Filter HDR in a bounded luminance domain so
 // a single bright texel does not produce a broad white fringe.
-vec3 resolveSpatialAa(vec2 uv, vec3 center) {
-    if (DYNAMIC_AA_STRENGTH <= 0.0) return center;
-    vec2 texel = 1.0 / vec2(textureSize(colortex0, 0));
-    vec3 north = aaCompress(sampleAaColor(uv + vec2(0.0, -1.0) * texel));
-    vec3 south = aaCompress(sampleAaColor(uv + vec2(0.0,  1.0) * texel));
-    vec3 west = aaCompress(sampleAaColor(uv + vec2(-1.0, 0.0) * texel));
-    vec3 east = aaCompress(sampleAaColor(uv + vec2( 1.0, 0.0) * texel));
-    vec3 compressedCenter = aaCompress(center);
-    float n = aaLuminance(north);
-    float s = aaLuminance(south);
-    float w = aaLuminance(west);
-    float e = aaLuminance(east);
-    float m = aaLuminance(compressedCenter);
-    float lo = min(m, min(min(n, s), min(w, e)));
-    float hi = max(m, max(max(n, s), max(w, e)));
-    if (hi - lo < max(0.0312, hi * 0.125)) return center;
-    vec2 direction = vec2(-(s - n), e - w);
-    float reduce = max((n + s + w + e) * 0.03125, 0.0078125);
-    direction = clamp(direction / (min(abs(direction.x), abs(direction.y)) + reduce),
-                      vec2(-2.0), vec2(2.0)) * texel;
-    vec3 narrow = 0.5 * (aaCompress(sampleAaColor(uv - direction / 6.0)) + aaCompress(sampleAaColor(uv + direction / 6.0)));
-    vec3 wide = narrow * 0.5 + 0.25 * (aaCompress(sampleAaColor(uv - direction * 0.5)) + aaCompress(sampleAaColor(uv + direction * 0.5)));
-    float wideLuma = aaLuminance(wide);
-    vec3 directional = wideLuma < lo || wideLuma > hi ? narrow : wide;
-    vec3 meanColor = (north + south + west + east) * 0.25;
-    float subpixelContrast = abs(aaLuminance(meanColor) - m) / max(hi - lo, 0.0001);
-    float subpixelBlend = min(0.35, 0.5 * subpixelContrast * subpixelContrast);
-    vec3 filtered = mix(directional, meanColor, subpixelBlend);
-    return aaExpand(mix(compressedCenter, filtered, DYNAMIC_AA_STRENGTH));
+vec3 ResolveSpatialAa(vec2 Uv, vec3 Center) {
+    if (DYNAMIC_AA_STRENGTH <= 0.0) return Center;
+    vec2 Texel = 1.0 / vec2(textureSize(colortex0, 0));
+    vec3 North = AaCompress(SampleAaColor(Uv + vec2(0.0, -1.0) * Texel));
+    vec3 South = AaCompress(SampleAaColor(Uv + vec2(0.0, 1.0) * Texel));
+    vec3 West = AaCompress(SampleAaColor(Uv + vec2(-1.0, 0.0) * Texel));
+    vec3 East = AaCompress(SampleAaColor(Uv + vec2(1.0, 0.0) * Texel));
+    vec3 CompressedCenter = AaCompress(Center);
+    float N = AaLuminance(North);
+    float S = AaLuminance(South);
+    float W = AaLuminance(West);
+    float E = AaLuminance(East);
+    float M = AaLuminance(CompressedCenter);
+    float Lo = min(M, min(min(N, S), min(W, E)));
+    float Hi = max(M, max(max(N, S), max(W, E)));
+    if (Hi - Lo < max(0.0312, Hi * 0.125)) return Center;
+    vec2 Direction = vec2(-(S - N), E - W);
+    float Reduce = max((N + S + W + E) * 0.03125, 0.0078125);
+    Direction = clamp(Direction / (min(abs(Direction.x), abs(Direction.y)) + Reduce), vec2(-2.0), vec2(2.0)) *
+                Texel;
+    vec3 Narrow = 0.5 * (AaCompress(SampleAaColor(Uv - Direction / 6.0)) + AaCompress(SampleAaColor(Uv + Direction / 6.0)));
+    vec3 Wide = Narrow * 0.5 + 0.25 * (AaCompress(SampleAaColor(Uv - Direction * 0.5)) + AaCompress(SampleAaColor(Uv + Direction * 0.5)));
+    float WideLuma = AaLuminance(Wide);
+    vec3 Directional = WideLuma < Lo || WideLuma > Hi ? Narrow : Wide;
+    vec3 MeanColor = (North + South + West + East) * 0.25;
+    float SubpixelContrast = abs(AaLuminance(MeanColor) - M) / max(Hi - Lo, 0.0001);
+    float SubpixelBlend = min(0.35, 0.5 * SubpixelContrast * SubpixelContrast);
+    vec3 Filtered = mix(Directional, MeanColor, SubpixelBlend);
+    return AaExpand(mix(CompressedCenter, Filtered, DYNAMIC_AA_STRENGTH));
 }
 #endif

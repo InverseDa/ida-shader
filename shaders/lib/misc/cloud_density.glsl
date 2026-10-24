@@ -2,92 +2,92 @@
 #define IDA_CLOUD_DENSITY_GLSL
 
 // Shared geometry, coverage and wind for visible clouds and surface shadows.
-const float CLOUD_BOTTOM = 168.0;
-const float CLOUD_BOTTOM_FULL = 196.0;
-const float CLOUD_TOP_FULL = 248.0;
-const float CLOUD_TOP = 286.0;
-const float CLOUD_EXTINCTION = 0.024;
-const float CLOUD_MAX_DISTANCE = 4096.0;
-const float CLOUD_FADE_START = 2048.0;
+const float CloudBottom = 168.0;
+const float CloudBottomFull = 196.0;
+const float CloudTopFull = 248.0;
+const float CloudTop = 286.0;
+const float CloudExtinction = 0.024;
+const float CloudMaxDistance = 4096.0;
+const float CloudFadeStart = 2048.0;
 
-float sampleAtmosphereNoise(vec2 cellPosition, float cellsPerSample) {
+float SampleAtmosphereNoise(vec2 CellPosition, float CellsPerSample) {
     // World-space noise cells, NOT normalized UV frequencies. The custom PNG
     // is 128x128; query the bound size instead of assuming the 256 constant.
-    float resolved = 1.0 - smoothstep(0.25, 1.25, cellsPerSample);
-    if (resolved <= 0.0) return 0.5;
-    vec2 cell = floor(cellPosition);
-    vec2 f = fract(cellPosition);
-    vec2 blend = f * f * (3.0 - 2.0 * f);
-    vec2 size = vec2(textureSize(noisetex, 0));
-    vec2 uv = (mod(cell, size) + blend + 0.5) / size;
+    float Resolved = 1.0 - smoothstep(0.25, 1.25, CellsPerSample);
+    if (Resolved <= 0.0) return 0.5;
+    vec2 Cell = floor(CellPosition);
+    vec2 F = fract(CellPosition);
+    vec2 Blend = F * F * (3.0 - 2.0 * F);
+    vec2 Size = vec2(textureSize(noisetex, 0));
+    vec2 Uv = (mod(Cell, Size) + Blend + 0.5) / Size;
     // One hardware bilinear lookup implements smooth value noise. Explicit
     // LOD is valid in divergent marches; no mip chain / new texture is needed.
-    return mix(0.5, textureLod(noisetex, fract(uv), 0.0).r, resolved);
+    return mix(0.5, textureLod(noisetex, fract(Uv), 0.0).r, Resolved);
 }
 
-float cloudCoverageThreshold() {
+float CloudCoverageThreshold() {
     return mix(0.46, 0.30, smoothstep(0.0, 1.0, rainStrength));
 }
 
-float getCloudHeightDensity(float height) {
-    float bottomFade = smoothstep(CLOUD_BOTTOM, CLOUD_BOTTOM_FULL, height);
-    float topFade = 1.0 - smoothstep(CLOUD_TOP_FULL, CLOUD_TOP, height);
-    return bottomFade * topFade;
+float GetCloudHeightDensity(float Height) {
+    float BottomFade = smoothstep(CloudBottom, CloudBottomFull, Height);
+    float TopFade = 1.0 - smoothstep(CloudTopFull, CloudTop, Height);
+    return BottomFade * TopFade;
 }
 
-float sampleCloudBody(vec3 cellPosition, float cellsPerSample) {
-    float resolved = 1.0 - smoothstep(0.25, 1.25, cellsPerSample);
-    if (resolved <= 0.0) return 0.5;
-    vec3 cell = floor(cellPosition);
-    vec3 f = fract(cellPosition);
-    vec3 blend = f * f * (3.0 - 2.0 * f);
-    vec2 size = vec2(textureSize(noisetex, 0));
-    vec2 plane = cell.xz + vec2(37.0, 17.0) * cell.y;
-    vec2 uv0 = (mod(plane, size) + blend.xz + 0.5) / size;
-    vec2 uv1 = uv0 + vec2(37.0, 17.0) / size;
-    float lower = textureLod(noisetex, fract(uv0), 0.0).r;
-    float upper = textureLod(noisetex, fract(uv1), 0.0).r;
+float SampleCloudBody(vec3 CellPosition, float CellsPerSample) {
+    float Resolved = 1.0 - smoothstep(0.25, 1.25, CellsPerSample);
+    if (Resolved <= 0.0) return 0.5;
+    vec3 Cell = floor(CellPosition);
+    vec3 F = fract(CellPosition);
+    vec3 Blend = F * F * (3.0 - 2.0 * F);
+    vec2 Size = vec2(textureSize(noisetex, 0));
+    vec2 Plane = Cell.xz + vec2(37.0, 17.0) * Cell.y;
+    vec2 Uv0 = (mod(Plane, Size) + Blend.xz + 0.5) / Size;
+    vec2 Uv1 = Uv0 + vec2(37.0, 17.0) / Size;
+    float Lower = textureLod(noisetex, fract(Uv0), 0.0).r;
+    float Upper = textureLod(noisetex, fract(Uv1), 0.0).r;
     // Interpolated adjacent lattice planes form continuous 3D value noise.
     // Reusing one XZ pattern through the slab would make stacked curtains.
-    return mix(0.5, mix(lower, upper, blend.y), resolved);
+    return mix(0.5, mix(Lower, Upper, Blend.y), Resolved);
 }
 
-float getCloudCoverageAtHeight(vec3 absolutePos, vec2 footprint) {
-    vec2 p = absolutePos.xz - vec2(2.0, 0.8) * frameTimeCounter;
-    float threshold = cloudCoverageThreshold();
-    vec3 bodyPos = vec3(p.x / 96.0, (absolutePos.y - CLOUD_BOTTOM) / 48.0, p.y / 96.0);
-    float body = sampleCloudBody(bodyPos, max(footprint.x / 96.0, footprint.y / 48.0));
+float GetCloudCoverageAtHeight(vec3 AbsolutePos, vec2 Footprint) {
+    vec2 P = AbsolutePos.xz - vec2(2.0, 0.8) * frameTimeCounter;
+    float Threshold = CloudCoverageThreshold();
+    vec3 BodyPos = vec3(P.x / 96.0, (AbsolutePos.y - CloudBottom) / 48.0, P.y / 96.0);
+    float Body = SampleCloudBody(BodyPos, max(Footprint.x / 96.0, Footprint.y / 48.0));
     // The unread broad weather field is bounded by one.
-    if (body * 0.70 + 0.30 <= threshold) return 0.0;
-    float weather = sampleAtmosphereNoise(p / 384.0 + vec2(17.3, 51.7), footprint.x / 384.0);
-    float erosion = (1.0 - getCloudHeightDensity(absolutePos.y)) * 0.20;
-    float cloudShape = body * 0.70 + weather * 0.30 - erosion;
-    return smoothstep(threshold, 0.72, cloudShape);
+    if (Body * 0.70 + 0.30 <= Threshold) return 0.0;
+    float Weather = SampleAtmosphereNoise(P / 384.0 + vec2(17.3, 51.7), Footprint.x / 384.0);
+    float Erosion = (1.0 - GetCloudHeightDensity(AbsolutePos.y)) * 0.20;
+    float CloudShape = Body * 0.70 + Weather * 0.30 - Erosion;
+    return smoothstep(Threshold, 0.72, CloudShape);
 }
 
-float getCloudCoverage(vec2 absoluteXZ) {
+float GetCloudCoverage(vec2 AbsoluteXZ) {
     // Surface shadows approximate the column with the same mid-layer field.
-    return getCloudCoverageAtHeight(vec3(absoluteXZ.x, 227.0, absoluteXZ.y), vec2(0.0));
+    return GetCloudCoverageAtHeight(vec3(AbsoluteXZ.x, 227.0, AbsoluteXZ.y), vec2(0.0));
 }
 
-float getCloudLayerDensity(vec3 absolutePos) {
-    float heightDensity = getCloudHeightDensity(absolutePos.y);
-    if (heightDensity <= 0.0) return 0.0;
-    return getCloudCoverageAtHeight(absolutePos, vec2(0.0)) * heightDensity;
+float GetCloudLayerDensity(vec3 AbsolutePos) {
+    float HeightDensity = GetCloudHeightDensity(AbsolutePos.y);
+    if (HeightDensity <= 0.0) return 0.0;
+    return GetCloudCoverageAtHeight(AbsolutePos, vec2(0.0)) * HeightDensity;
 }
 
-float cloudRampIntegral(float height, float lower, float upper) {
-    float t = clamp((height - lower) / (upper - lower), 0.0, 1.0);
-    return max(height - upper, 0.0) + (upper - lower) * t * t * t * (1.0 - 0.5 * t);
+float CloudRampIntegral(float Height, float Lower, float Upper) {
+    float T = clamp((Height - Lower) / (Upper - Lower), 0.0, 1.0);
+    return max(Height - Upper, 0.0) + (Upper - Lower) * T * T * T * (1.0 - 0.5 * T);
 }
 
-float cloudColumnLengthAbove(float height) {
-    float y = clamp(height, CLOUD_BOTTOM, CLOUD_TOP);
-    float fullColumn = CLOUD_TOP - CLOUD_BOTTOM -
-                       0.5 * (CLOUD_BOTTOM_FULL - CLOUD_BOTTOM + CLOUD_TOP - CLOUD_TOP_FULL);
-    float below = cloudRampIntegral(y, CLOUD_BOTTOM, CLOUD_BOTTOM_FULL) -
-                  cloudRampIntegral(y, CLOUD_TOP_FULL, CLOUD_TOP);
-    return max(fullColumn - below, 0.0);
+float CloudColumnLengthAbove(float Height) {
+    float Y = clamp(Height, CloudBottom, CloudTop);
+    float FullColumn = CloudTop - CloudBottom -
+                       0.5 * (CloudBottomFull - CloudBottom + CloudTop - CloudTopFull);
+    float Below = CloudRampIntegral(Y, CloudBottom, CloudBottomFull) -
+                  CloudRampIntegral(Y, CloudTopFull, CloudTop);
+    return max(FullColumn - Below, 0.0);
 }
 
 #endif

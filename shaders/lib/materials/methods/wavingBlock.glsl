@@ -1,13 +1,22 @@
+
+
+// =============================================================================
+// Vertex Shader
+// =============================================================================
 #ifdef VERTEX_SHADER
+
 vec4 GetBump() {
-    vec4 pos = gl_Vertex;
-    pos.xyz += cameraPosition;
-    pos.y += 0.10 * (sin(pos.x + frameTimeCounter) + cos(pos.z + frameTimeCounter));
-    pos.xyz -= cameraPosition;
-    return gbufferModelView * pos;
+    vec4 Pos = gl_Vertex;
+    Pos.xyz += cameraPosition;
+    Pos.y += 0.10 * (sin(Pos.x + frameTimeCounter) + cos(Pos.z + frameTimeCounter));
+    Pos.xyz -= cameraPosition;
+    return gbufferModelView * Pos;
 }
 #endif
 
+// =============================================================================
+// Fragment Shader
+// =============================================================================
 #ifdef FRAGMENT_SHADER
 
 // ============================================================================
@@ -15,51 +24,62 @@ vec4 GetBump() {
 // thanks jackdavenport
 // https://www.shadertoy.com/view/Mt2SzR
 // ============================================================================
-float random(float x) {
-    return fract(sin(x) * 10000.);   
+float Random(float X) {
+    return fract(sin(X) * 10000.);
 }
 
-float noise(vec2 p) {
-    return random(p.x + p.y * 10000.);
+float Noise(vec2 P) {
+    return Random(P.x + P.y * 10000.);
 }
 
-vec2 sw(vec2 p) { return vec2(floor(p.x), floor(p.y)); }
-vec2 se(vec2 p) { return vec2(ceil(p.x), floor(p.y)); }
-vec2 nw(vec2 p) { return vec2(floor(p.x), ceil(p.y)); }
-vec2 ne(vec2 p) { return vec2(ceil(p.x), ceil(p.y)); }
-
-float smoothNoise(vec2 p) {
-    vec2 interp = smoothstep(0., 1., fract(p));
-    float s = mix(noise(sw(p)), noise(se(p)), interp.x);
-    float n = mix(noise(nw(p)), noise(ne(p)), interp.x);
-    return mix(s, n, interp.y);  
+vec2 Sw(vec2 P) {
+    return vec2(floor(P.x), floor(P.y));
 }
 
-float fractalNoise(vec2 p) {
-    float x = 0.;
-    x += smoothNoise(p      );
-    x += smoothNoise(p * 2. ) / 2.;
-    x += smoothNoise(p * 4. ) / 4.;
-    x += smoothNoise(p * 8. ) / 8.;
-    x += smoothNoise(p * 16.) / 16.;
-    x /= 1. + 1./2. + 1./4. + 1./8. + 1./16.;
-    return x;   
+vec2 Se(vec2 P) {
+    return vec2(ceil(P.x), floor(P.y));
 }
 
-float movingNoise(vec2 p) {
-    float x = fractalNoise(p);
-    float y = fractalNoise(p);
-    return fractalNoise(p + vec2(x, y));   
+vec2 Nw(vec2 P) {
+    return vec2(floor(P.x), ceil(P.y));
 }
 
-float nestedNoise(vec2 p) {
-    float x = movingNoise(p);
-    float y = movingNoise(p + 100.);
-    return movingNoise(p + vec2(x, y));
+vec2 Ne(vec2 P) {
+    return vec2(ceil(P.x), ceil(P.y));
 }
 
-float PerlinWaterNoise(vec2 uv) {
-    return nestedNoise(uv * 6.0);
+float SmoothNoise(vec2 P) {
+    vec2 Interp = smoothstep(0., 1., fract(P));
+    float S = mix(Noise(Sw(P)), Noise(Se(P)), Interp.x);
+    float N = mix(Noise(Nw(P)), Noise(Ne(P)), Interp.x);
+    return mix(S, N, Interp.y);
+}
+
+float FractalNoise(vec2 P) {
+    float X = 0.;
+    X += SmoothNoise(P);
+    X += SmoothNoise(P * 2.) / 2.;
+    X += SmoothNoise(P * 4.) / 4.;
+    X += SmoothNoise(P * 8.) / 8.;
+    X += SmoothNoise(P * 16.) / 16.;
+    X /= 1. + 1. / 2. + 1. / 4. + 1. / 8. + 1. / 16.;
+    return X;
+}
+
+float MovingNoise(vec2 P) {
+    float X = FractalNoise(P);
+    float Y = FractalNoise(P);
+    return FractalNoise(P + vec2(X, Y));
+}
+
+float NestedNoise(vec2 P) {
+    float X = MovingNoise(P);
+    float Y = MovingNoise(P + 100.);
+    return MovingNoise(P + vec2(X, Y));
+}
+
+float PerlinWaterNoise(vec2 Uv) {
+    return NestedNoise(Uv * 6.0);
 }
 
 // ============================================================================
@@ -67,24 +87,24 @@ float PerlinWaterNoise(vec2 uv) {
 // return a float value as complex noise
 // ============================================================================
 
-float GetWave(vec4 worldPos) {
-    float speed1 = frameTimeCounter * 45 / (noiseTextureResolution * 7);
-    vec3 coord1 = worldPos.xyz / noiseTextureResolution;
-    coord1.x *= 3;
-    coord1.x += speed1;
-    coord1.z += speed1 * 0.2;
-    float noise1 = PerlinWaterNoise(coord1.xz);
+float GetWave(vec4 WorldPos) {
+    float Speed1 = frameTimeCounter * 45 / (noiseTextureResolution * 7);
+    vec3 Coord1 = WorldPos.xyz / noiseTextureResolution;
+    Coord1.x *= 3;
+    Coord1.x += Speed1;
+    Coord1.z += Speed1 * 0.2;
+    float Noise1 = PerlinWaterNoise(Coord1.xz);
     // float noise1 = texture2D(noisetex, coord1.xz).x;
 
-    float speed2 = frameTimeCounter * 45 / (noiseTextureResolution * 7);
-    vec3 coord2 = worldPos.xyz / noiseTextureResolution;
-    coord2.x *= 0.1;
-    coord2.x -= speed2 * 0.15 + noise1 * 0.05;
-    coord2.z -= speed2 * 0.7 - noise1 * 0.05;
+    float Speed2 = frameTimeCounter * 45 / (noiseTextureResolution * 7);
+    vec3 Coord2 = WorldPos.xyz / noiseTextureResolution;
+    Coord2.x *= 0.1;
+    Coord2.x -= Speed2 * 0.15 + Noise1 * 0.05;
+    Coord2.z -= Speed2 * 0.7 - Noise1 * 0.05;
     // float noise2 = PerlinWaterNoise(coord2.xz);
-    float noise2 = texture2D(noisetex, coord2.xz).x;
+    float Noise2 = texture2D(noisetex, Coord2.xz).x;
 
-    return noise2 * 0.6 + 0.4;
+    return Noise2 * 0.6 + 0.4;
 }
 
 #endif

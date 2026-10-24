@@ -4,15 +4,19 @@
 #include "/lib/materials/pbr.glsl"
 #include "/lib/lighting/frame.glsl"
 
+// =============================================================================
+// Fragment Shader
+// =============================================================================
 #ifdef FRAGMENT_SHADER
+
 uniform sampler2D texture;
 uniform sampler2D lightmap;
-flat in int mat;
-in vec4 color;
-in vec4 texcoord;
-in vec4 lmcoord;
-in vec3 normal;
-in vec4 viewPos;
+flat in int Mat;
+in vec4 Color;
+in vec4 Texcoord;
+in vec4 Lmcoord;
+in vec3 Normal;
+in vec4 ViewPos;
 #include "/lib/lighting/scene.glsl"
 #include "/lib/misc/atmosphere.glsl"
 #define IDA_WATER_SURFACE_PASS
@@ -21,83 +25,81 @@ in vec4 viewPos;
 
 /* RENDERTARGETS: 0,10 */
 void main() {
-    vec2 screenUv = gl_FragCoord.xy / vec2(viewWidth, viewHeight);
-    vec4 base = texture2D(texture, texcoord.st) * color;
-    vec4 material = withMaterialSkyLight(getTranslucentMaterialData(float(mat)), lmcoord.t);
-    vec3 surfaceNormal = safeNormal(normal);
-    vec3 worldPos = viewToWorldPos(viewPos.xyz, gbufferModelViewInverse);
+    vec2 ScreenUv = gl_FragCoord.xy / vec2(viewWidth, viewHeight);
+    vec4 Base = texture2D(texture, Texcoord.st) * Color;
+    vec4 Material = WithMaterialSkyLight(GetTranslucentMaterialData(float(Mat)), Lmcoord.t);
+    vec3 SurfaceNormal = SafeNormal(Normal);
+    vec3 WorldPos = ViewToWorldPos(ViewPos.xyz, gbufferModelViewInverse);
     // Explicit gradients remain valid inside material / refraction branches.
-    vec2 dpdx = dFdx(worldPos.xz);
-    vec2 dpdy = dFdy(worldPos.xz);
-    float viewVariance = specularNormalVariance(safeNormal(viewPos.xyz));
-    vec3 shaded;
-    float alpha = base.a;
-    if (isWaterEntityId(float(mat))) {
-        if (base.a <= 0.001) discard;
-        float transmission;
+    vec2 Dpdx = dFdx(WorldPos.xz);
+    vec2 Dpdy = dFdy(WorldPos.xz);
+    float ViewVariance = SpecularNormalVariance(SafeNormal(ViewPos.xyz));
+    vec3 Shaded;
+    float Alpha = Base.a;
+    if (IsWaterEntityId(float(Mat))) {
+        if (Base.a <= 0.001) discard;
+        float Transmission;
         if (isEyeInWater == 1) {
-            shaded = drawUnderwaterSurface(worldPos, viewPos.xyz, surfaceNormal, dpdx, dpdy,
-                                          screenUv, gl_FragCoord.z, transmission);
+            Shaded = DrawUnderwaterSurface(WorldPos, ViewPos.xyz, SurfaceNormal, Dpdx, Dpdy, ScreenUv, gl_FragCoord.z, Transmission);
         } else {
-            vec2 opaqueUv = opaqueUvForUnjitteredUv(screenUv);
-            vec4 opaque = sampleOpaqueData(opaqueUv);
-            vec3 behind = reconstructOpaqueViewPos(opaqueUv, opaque);
-            vec3 waterLight = srgbToLinear(texture2D(lightmap, lmcoord.st).rgb);
-            shaded = drawWater(color.rgb, worldPos, viewPos.xyz, behind,
-                               surfaceNormal, dpdx, dpdy, viewVariance, screenUv, gl_FragCoord.z,
-                               opaqueUv, opaque, lmcoord.st, waterLight, transmission);
+            vec2 OpaqueUv = OpaqueUvForUnjitteredUv(ScreenUv);
+            vec4 Opaque = SampleOpaqueData(OpaqueUv);
+            vec3 Behind = ReconstructOpaqueViewPos(OpaqueUv, Opaque);
+            vec3 WaterLight = SrgbToLinear(texture2D(lightmap, Lmcoord.st).rgb);
+            Shaded = DrawWater(Color.rgb, WorldPos, ViewPos.xyz, Behind, SurfaceNormal, Dpdx, Dpdy, ViewVariance, ScreenUv, gl_FragCoord.z, OpaqueUv, Opaque, Lmcoord.st, WaterLight, Transmission);
         }
-        shaded = applyAtmosphere(shaded, viewPos.xyz, false);
+        Shaded = ApplyAtmosphere(Shaded, ViewPos.xyz, false);
         // The modeled ray includes the opaque background. Factor it out before
         // alpha blending, preserving transparent contributions already drawn.
-        vec4 layer = makeRefractiveLayer(shaded, texture2D(colortex11, screenUv).rgb, transmission);
-        shaded = layer.rgb;
-        alpha = layer.a;
+        vec4 Layer = MakeRefractiveLayer(Shaded, texture2D(colortex11, ScreenUv).rgb, Transmission);
+        Shaded = Layer.rgb;
+        Alpha = Layer.a;
     } else {
-        PbrMaterialSample pbr = samplePbrMaterial(texcoord.st, surfaceNormal, viewPos.xyz, material);
-        if (base.a <= 0.001) discard;
-        float transmissionVisibility;
-        float visibility = shadowMapping(worldPos, pbr.normalView, 1.0, transmissionVisibility);
-        shaded = applySunDirectLight(srgbToLinear(base.rgb), pbr.normalView, viewPos.xyz, worldPos,
-                 pbr.materialData, visibility, transmissionVisibility, 1.0,
-                 srgbToLinear(texture2D(lightmap, lmcoord.st).rgb));
-        if (isEyeInWater != 1 && isIceEntityId(float(mat)))
-            shaded = drawIce(shaded, worldPos, viewPos.xyz, pbr.normalView, pbr.normalVariance, viewVariance);
-        shaded = applyAtmosphere(shaded, viewPos.xyz, false);
+        PbrMaterialSample Pbr = SamplePbrMaterial(Texcoord.st, SurfaceNormal, ViewPos.xyz, Material);
+        if (Base.a <= 0.001) discard;
+        float TransmissionVisibility;
+        float Visibility = ShadowMapping(WorldPos, Pbr.NormalView, 1.0, TransmissionVisibility);
+        Shaded = ApplySunDirectLight(SrgbToLinear(Base.rgb), Pbr.NormalView, ViewPos.xyz, WorldPos, Pbr.MaterialData, Visibility, TransmissionVisibility, 1.0, SrgbToLinear(texture2D(lightmap, Lmcoord.st).rgb));
+        if (isEyeInWater != 1 && IsIceEntityId(float(Mat)))
+            Shaded = DrawIce(Shaded, WorldPos, ViewPos.xyz, Pbr.NormalView, Pbr.NormalVariance, ViewVariance);
+        Shaded = ApplyAtmosphere(Shaded, ViewPos.xyz, false);
     }
-    gl_FragData[0] = vec4(shaded, alpha);
+    gl_FragData[0] = vec4(Shaded, Alpha);
     // Additive R8 mask: later transparent layers cannot erase earlier coverage.
-    gl_FragData[1] = vec4(max(alpha, 1.0 / 255.0));
+    gl_FragData[1] = vec4(max(Alpha, 1.0 / 255.0));
 }
-#endif
+
+#endif // FRAGMENT_SHADER
 
 // =============================================================================
-// ============================== Vertex Shader ================================
+// Vertex Shader
 // =============================================================================
 #ifdef VERTEX_SHADER
+
 uniform mat4 gbufferProjection;
 uniform mat4 gbufferModelView;
 
 in vec4 mc_Entity;
 
 // `flat` used to disable interpolation
-flat out int mat;
+flat out int Mat;
 
-out vec4 color;
-out vec4 texcoord;
-out vec4 lmcoord;
-out vec3 normal;
-out vec4 viewPos;
+out vec4 Color;
+out vec4 Texcoord;
+out vec4 Lmcoord;
+out vec3 Normal;
+out vec4 ViewPos;
 
 void main() {
-    mat = int(mc_Entity.x);
-    viewPos = gbufferModelView * gl_Vertex;
-    color = gl_Color;
-    normal = gl_NormalMatrix * gl_Normal;
-    gl_Position = gbufferProjection * viewPos;
-    setupFrameLighting();
+    Mat = int(mc_Entity.x);
+    ViewPos = gbufferModelView * gl_Vertex;
+    Color = gl_Color;
+    Normal = gl_NormalMatrix * gl_Normal;
+    gl_Position = gbufferProjection * ViewPos;
+    SetupFrameLighting();
     // texture uv
-    texcoord = gl_TextureMatrix[0] * gl_MultiTexCoord0;
-    lmcoord = gl_TextureMatrix[1] * gl_MultiTexCoord1;
+    Texcoord = gl_TextureMatrix[0] * gl_MultiTexCoord0;
+    Lmcoord = gl_TextureMatrix[1] * gl_MultiTexCoord1;
 }
-#endif
+
+#endif // VERTEX_SHADER

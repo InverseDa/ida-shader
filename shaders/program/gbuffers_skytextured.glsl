@@ -3,42 +3,45 @@
 #include "/lib/materials/materialData.glsl"
 
 // =============================================================================
-// ============================= Fragment Shader ===============================
+// Fragment Shader
 // =============================================================================
 #ifdef FRAGMENT_SHADER
+
 uniform sampler2D texture;
 
-in vec4 color;
-in vec4 texcoord;
-in vec3 normal;
+in vec4 Color;
+in vec4 Texcoord;
+in vec3 Normal;
 
 /* DRAWBUFFERS:025 */
 void main() {
-  // color: the biome color, texture: gray texture color
-  // texture * color = RealColor
-  // 去掉原始太阳和月亮
-  gl_FragData[0] = vec4(0.0);
-  gl_FragData[1] = vec4(normalEncode(safeNormal(normal)), 0.0, 1.0);
-  gl_FragData[2] = getSkyMaterialData();
+    // color: the biome color, texture: gray texture color
+    // texture * color = RealColor
+    // 去掉原始太阳和月亮
+    gl_FragData[0] = vec4(0.0);
+    gl_FragData[1] = vec4(NormalEncode(SafeNormal(Normal)), 0.0, 1.0);
+    gl_FragData[2] = GetSkyMaterialData();
 }
-#endif
+
+#endif // FRAGMENT_SHADER
 
 // =============================================================================
-// ============================== Vertex Shader ================================
+// Vertex Shader
 // =============================================================================
 #ifdef VERTEX_SHADER
-out vec4 color;
-out vec4 texcoord;
-out vec3 normal;
+
+out vec4 Color;
+out vec4 Texcoord;
+out vec3 Normal;
 
 void main() {
-  // position in camera(steve)
-  vec4 positionInView = gl_ModelViewMatrix * gl_Vertex;
-  gl_Position = gl_ProjectionMatrix * positionInView;
+    // position in camera(steve)
+    vec4 PositionInView = gl_ModelViewMatrix * gl_Vertex;
+    gl_Position = gl_ProjectionMatrix * PositionInView;
 
-  color = gl_Color;
-  texcoord = gl_TextureMatrix[0] * gl_MultiTexCoord0;
-  normal = gl_NormalMatrix * gl_Normal;
-
+    Color = gl_Color;
+    Texcoord = gl_TextureMatrix[0] * gl_MultiTexCoord0;
+    Normal = gl_NormalMatrix * gl_Normal;
 }
-#endif
+
+#endif // VERTEX_SHADER

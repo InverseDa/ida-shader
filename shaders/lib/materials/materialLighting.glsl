@@ -4,68 +4,68 @@
 #include "/lib/materials/materialData.glsl"
 
 struct MaterialLightingProfile {
-    float shadowLift;
-    float directScale;
-    float ambientScale;
-    float emissionStrength;
-    float transmissionScale;
+    float ShadowLift;
+    float DirectScale;
+    float AmbientScale;
+    float EmissionStrength;
+    float TransmissionScale;
 };
 
-MaterialLightingProfile getMaterialLightingProfile(vec4 materialData) {
-    MaterialLightingProfile profile;
-    profile.shadowLift = 0.24;
-    profile.directScale = 1.0;
-    profile.ambientScale = 1.0;
-    profile.emissionStrength = 0.0;
-    profile.transmissionScale = 0.0;
+MaterialLightingProfile GetMaterialLightingProfile(vec4 MaterialData) {
+    MaterialLightingProfile Profile;
+    Profile.ShadowLift = 0.24;
+    Profile.DirectScale = 1.0;
+    Profile.AmbientScale = 1.0;
+    Profile.EmissionStrength = 0.0;
+    Profile.TransmissionScale = 0.0;
 
-    if (isMaterial(materialData, MATERIAL_ID_SKY)) {
-        profile.shadowLift = 1.0;
-        profile.directScale = 0.0;
-        profile.ambientScale = 0.0;
-        return profile;
+    if (IsMaterial(MaterialData, MaterialIdSky)) {
+        Profile.ShadowLift = 1.0;
+        Profile.DirectScale = 0.0;
+        Profile.AmbientScale = 0.0;
+        return Profile;
     }
 
-    if (isMaterial(materialData, MATERIAL_ID_WATER)) {
-        profile.shadowLift = 1.0;
-        profile.directScale = 0.0;
-        profile.ambientScale = 0.0;
-        return profile;
+    if (IsMaterial(MaterialData, MaterialIdWater)) {
+        Profile.ShadowLift = 1.0;
+        Profile.DirectScale = 0.0;
+        Profile.AmbientScale = 0.0;
+        return Profile;
     }
 
-    if (isVegetationMaterial(materialData)) {
+    if (IsVegetationMaterial(MaterialData)) {
         // Replace the old unconditional 26% ambient boost with a directional
         // thin-surface term. New leaves/plants retain their static TAA path.
-        profile.shadowLift = 0.24;
-        profile.directScale = 0.82;
-        profile.ambientScale = 1.0;
-        profile.transmissionScale = isMaterial(materialData, MATERIAL_ID_LEAVES) ? 0.55 : 0.8;
-        return profile;
+        Profile.ShadowLift = 0.24;
+        Profile.DirectScale = 0.82;
+        Profile.AmbientScale = 1.0;
+        Profile.TransmissionScale = IsMaterial(MaterialData, MaterialIdLeaves) ? 0.55 : 0.8;
+        return Profile;
     }
 
-    if (isMaterial(materialData, MATERIAL_ID_EMISSIVE)) {
-        profile.shadowLift = 1.0;
-        profile.directScale = 0.18;
-        profile.ambientScale = 0.45;
-        profile.emissionStrength = 1.55;
-        return profile;
+    if (IsMaterial(MaterialData, MaterialIdEmissive)) {
+        Profile.ShadowLift = 1.0;
+        Profile.DirectScale = 0.18;
+        Profile.AmbientScale = 0.45;
+        Profile.EmissionStrength = 1.55;
+        return Profile;
     }
 
-    if (isMaterial(materialData, MATERIAL_ID_ICE)) {
-        profile.directScale = 0.55;
-        profile.ambientScale = 0.45;
-        return profile;
+    if (IsMaterial(MaterialData, MaterialIdIce)) {
+        Profile.DirectScale = 0.55;
+        Profile.AmbientScale = 0.45;
+        return Profile;
     }
 
-    return profile;
+    return Profile;
 }
 
-float adjustMaterialRoughness(vec4 materialData, float roughness) {
-    if (isMaterial(materialData, MATERIAL_ID_ICE)) {
-        return max(roughness, 0.72);
+float AdjustMaterialRoughness(vec4 MaterialData, float Roughness) {
+    if (IsMaterial(MaterialData, MaterialIdIce)) {
+        return max(Roughness, 0.72);
     }
 
-    return roughness;
+    return Roughness;
 }
 
 #endif

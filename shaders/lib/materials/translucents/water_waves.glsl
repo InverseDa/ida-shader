@@ -2,71 +2,68 @@
 #define IDA_WATER_WAVES_GLSL
 
 struct WaterWaves {
-    float height;
-    vec2 slope;
-    vec2 broadSlope;
-    float variance;
+    float Height;
+    vec2 Slope;
+    vec2 BroadSlope;
+    float Variance;
 };
 
-float waterWaveVisibility(float cyclesPerPixel) {
-    return 1.0 - smoothstep(0.125, 0.5, cyclesPerPixel);
+float WaterWaveVisibility(float CyclesPerPixel) {
+    return 1.0 - smoothstep(0.125, 0.5, CyclesPerPixel);
 }
 
-void addFilteredWaterWave(vec2 p, vec2 dpdx, vec2 dpdy, vec2 direction,
-                         float wavelength, float amplitude, float speed, float offset,
-                         inout float height, inout vec2 slope, inout vec2 slopeDx,
-                         inout vec2 slopeDy, inout float unresolvedVariance) {
-    vec2 dir = normalize(direction);
-    float k = 6.2831853 / wavelength;
-    vec2 phaseGradient = k * vec2(dot(dir, dpdx), dot(dir, dpdy));
-    float visibility = waterWaveVisibility(max(abs(phaseGradient.x), abs(phaseGradient.y)) / 6.2831853);
-    float slopeAmplitude = amplitude * k;
-    unresolvedVariance += 0.5 * slopeAmplitude * slopeAmplitude * (1.0 - visibility * visibility);
-    if (visibility <= 0.0) return;
-    float phase = k * dot(dir, p) - sqrt(9.81 * k) * speed * frameTimeCounter + offset;
-    float sine = sin(phase);
-    height += amplitude * sine * visibility;
-    slope += dir * (slopeAmplitude * cos(phase) * visibility);
-    vec2 slopeDerivative = -dir * slopeAmplitude * sine * visibility;
-    slopeDx += slopeDerivative * phaseGradient.x;
-    slopeDy += slopeDerivative * phaseGradient.y;
+void AddFilteredWaterWave(vec2 P, vec2 Dpdx, vec2 Dpdy, vec2 Direction, float Wavelength, float Amplitude, float Speed, float Offset, inout float Height, inout vec2 Slope, inout vec2 SlopeDx, inout vec2 SlopeDy, inout float UnresolvedVariance) {
+    vec2 Dir = normalize(Direction);
+    float K = 6.2831853 / Wavelength;
+    vec2 PhaseGradient = K * vec2(dot(Dir, Dpdx), dot(Dir, Dpdy));
+    float Visibility = WaterWaveVisibility(max(abs(PhaseGradient.x), abs(PhaseGradient.y)) / 6.2831853);
+    float SlopeAmplitude = Amplitude * K;
+    UnresolvedVariance += 0.5 * SlopeAmplitude * SlopeAmplitude * (1.0 - Visibility * Visibility);
+    if (Visibility <= 0.0) return;
+    float Phase = K * dot(Dir, P) - sqrt(9.81 * K) * Speed * frameTimeCounter + Offset;
+    float Sine = sin(Phase);
+    Height += Amplitude * Sine * Visibility;
+    Slope += Dir * (SlopeAmplitude * cos(Phase) * Visibility);
+    vec2 SlopeDerivative = -Dir * SlopeAmplitude * Sine * Visibility;
+    SlopeDx += SlopeDerivative * PhaseGradient.x;
+    SlopeDy += SlopeDerivative * PhaseGradient.y;
 }
 
-WaterWaves sampleWaterWaves(vec3 relativeWorld, vec2 dpdx, vec2 dpdy) {
-    vec2 p = (relativeWorld + cameraPosition).xz;
-    WaterWaves waves;
-    waves.height = 0.0;
-    waves.slope = vec2(0.0);
-    vec2 slopeDx = vec2(0.0);
-    vec2 slopeDy = vec2(0.0);
-    float unresolved = 0.0;
+WaterWaves SampleWaterWaves(vec3 RelativeWorld, vec2 Dpdx, vec2 Dpdy) {
+    vec2 P = (RelativeWorld + cameraPosition).xz;
+    WaterWaves Waves;
+    Waves.Height = 0.0;
+    Waves.Slope = vec2(0.0);
+    vec2 SlopeDx = vec2(0.0);
+    vec2 SlopeDy = vec2(0.0);
+    float Unresolved = 0.0;
     // Share the three broad waves between the reflection and sparkle normals.
-    addFilteredWaterWave(p, dpdx, dpdy, vec2( 0.86, 0.50), 20.0, 0.170, 0.70, 0.00, waves.height, waves.slope, slopeDx, slopeDy, unresolved);
-    addFilteredWaterWave(p, dpdx, dpdy, vec2( 0.42, 0.91), 10.5, 0.085, 0.90, 1.70, waves.height, waves.slope, slopeDx, slopeDy, unresolved);
-    addFilteredWaterWave(p, dpdx, dpdy, vec2(-0.28, 0.96),  6.2, 0.043, 1.16, 3.10, waves.height, waves.slope, slopeDx, slopeDy, unresolved);
-    waves.broadSlope = waves.slope;
-    addFilteredWaterWave(p, dpdx, dpdy, vec2( 0.97,-0.24), 3.1, 0.017, 1.48, 4.40, waves.height, waves.slope, slopeDx, slopeDy, unresolved);
-    addFilteredWaterWave(p, dpdx, dpdy, vec2(-0.71, 0.70), 1.9, 0.010, 1.82, 2.30, waves.height, waves.slope, slopeDx, slopeDy, unresolved);
+    AddFilteredWaterWave(P, Dpdx, Dpdy, vec2(0.86, 0.50), 20.0, 0.170, 0.70, 0.00, Waves.Height, Waves.Slope, SlopeDx, SlopeDy, Unresolved);
+    AddFilteredWaterWave(P, Dpdx, Dpdy, vec2(0.42, 0.91), 10.5, 0.085, 0.90, 1.70, Waves.Height, Waves.Slope, SlopeDx, SlopeDy, Unresolved);
+    AddFilteredWaterWave(P, Dpdx, Dpdy, vec2(-0.28, 0.96), 6.2, 0.043, 1.16, 3.10, Waves.Height, Waves.Slope, SlopeDx, SlopeDy, Unresolved);
+    Waves.BroadSlope = Waves.Slope;
+    AddFilteredWaterWave(P, Dpdx, Dpdy, vec2(0.97, -0.24), 3.1, 0.017, 1.48, 4.40, Waves.Height, Waves.Slope, SlopeDx, SlopeDy, Unresolved);
+    AddFilteredWaterWave(P, Dpdx, Dpdy, vec2(-0.71, 0.70), 1.9, 0.010, 1.82, 2.30, Waves.Height, Waves.Slope, SlopeDx, SlopeDy, Unresolved);
 
-    float footprint = max(length(dpdx), length(dpdy));
-    float microVisibility = waterWaveVisibility(footprint * 1.8);
-    if (microVisibility > 0.0) {
+    float Footprint = max(length(Dpdx), length(Dpdy));
+    float MicroVisibility = WaterWaveVisibility(Footprint * 1.8);
+    if (MicroVisibility > 0.0) {
         // The old nested procedural warp was very expensive for this tiny lobe.
         // Reuse the existing noise texture, original flow and anisotropic scale.
-        vec2 scale = vec2(0.1, 1.0) * (1.8 / 256.0);
-        vec2 uv = p * scale - frameTimeCounter * (45.0 / (256.0 * 7.0)) * vec2(0.15, 0.7);
-        float micro = textureGrad(noisetex, uv, dpdx * scale, dpdy * scale).r - 0.5;
-        waves.slope += vec2(micro, -micro) * (0.0156 * microVisibility);
+        vec2 Scale = vec2(0.1, 1.0) * (1.8 / 256.0);
+        vec2 Uv = P * Scale - frameTimeCounter * (45.0 / (256.0 * 7.0)) * vec2(0.15, 0.7);
+        float Micro = textureGrad(noisetex, Uv, Dpdx * Scale, Dpdy * Scale).r - 0.5;
+        Waves.Slope += vec2(Micro, -Micro) * (0.0156 * MicroVisibility);
     }
     // Variance lost by removing subpixel waves broadens the highlight instead
     // of turning unresolved waves into a perfectly sharp mirror.
-    waves.variance = min(0.15 * (dot(slopeDx, slopeDx) + dot(slopeDy, slopeDy)) + unresolved +
-                         0.000041 * (1.0 - microVisibility * microVisibility), 0.09) * SPECULAR_AA;
-    return waves;
+    Waves.Variance = min(0.15 * (dot(SlopeDx, SlopeDx) + dot(SlopeDy, SlopeDy)) + Unresolved + 0.000041 * (1.0 - MicroVisibility * MicroVisibility), 0.09) *
+                     SPECULAR_AA;
+    return Waves;
 }
 
-vec3 waterWaveNormal(vec3 baseNormal, vec2 slope, float strength) {
-    vec3 waveNormal = normalize(vec3(-slope.x, 1.0, -slope.y));
-    return normalize(mix(baseNormal, waveNormal, strength));
+vec3 WaterWaveNormal(vec3 BaseNormal, vec2 Slope, float Strength) {
+    vec3 WaveNormal = normalize(vec3(-Slope.x, 1.0, -Slope.y));
+    return normalize(mix(BaseNormal, WaveNormal, Strength));
 }
 #endif
