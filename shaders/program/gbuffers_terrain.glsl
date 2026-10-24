@@ -2,6 +2,7 @@
 #include "/lib/util/functions.glsl"
 #include "/lib/materials/materialData.glsl"
 #include "/lib/materials/pbr.glsl"
+#include "/lib/materials/wetness.glsl"
 #include "/lib/post/taa.glsl"
 
 // =============================================================================
@@ -20,16 +21,34 @@ in float vertexToCameraDistance;
 flat in float materialId;
 in vec3 normal;
 in vec3 viewPos;
+#if SURFACE_WETNESS == 1
+flat in vec2 wetnessProfile;
+in float wetnessNormalUp;
+#endif
 
 /* RENDERTARGETS: 0,2,5,9 */
 void main() {
   // color: the biome color, texture: gray texture color
   // texture * color = RealColor
   vec3 geometryNormal = safeNormal(normal);
-  vec4 materialData = getTerrainMaterialData(materialId);
+  vec4 materialData = withMaterialSkyLight(getTerrainMaterialData(materialId), lmcoord.t);
+#if SURFACE_WETNESS == 1 && PUDDLE_REFLECTIONS == 1
+  materialData = withPuddleSurface(materialData, wetnessNormalUp);
+#endif
   PbrMaterialSample pbr = samplePbrMaterial(texcoord.st, geometryNormal, viewPos, materialData);
   vec4 base = texture2D(texture, texcoord.st) * color;
-  gl_FragData[0] = vec4(srgbToLinear(base.rgb), base.a);
+  vec3 albedo = srgbToLinear(base.rgb);
+#if SURFACE_WETNESS == 1
+  // PBR/normal derivatives above stay outside weather-dependent control flow.
+  if (surfaceWetness > 0.0 && wetnessProfile.x > 0.0) {
+    float amount = surfaceWetness * SURFACE_WETNESS_STRENGTH * rainExposure(lmcoord.t, wetnessNormalUp);
+    vec2 response = wetSurfaceResponse(pbr.materialData.r, pbr.normalVariance,
+                                      wetnessProfile, amount, getMaterialMetallic(pbr.materialData));
+    albedo *= response.x;
+    pbr.materialData.r = response.y;
+  }
+#endif
+  gl_FragData[0] = vec4(albedo, base.a);
   gl_FragData[3] = vec4(srgbToLinear(texture2D(lightmap, lmcoord.st).rgb), 1.0);
   gl_FragData[1] = vec4(normalEncode(pbr.normalView), 0.0, 1.0);
   gl_FragData[2] = pbr.materialData;
@@ -54,6 +73,11 @@ out float vertexToCameraDistance;
 flat out float materialId;
 out vec3 normal;
 out vec3 viewPos;
+#if SURFACE_WETNESS == 1
+uniform mat4 gbufferModelViewInverse;
+flat out vec2 wetnessProfile;
+out float wetnessNormalUp;
+#endif
 
 #include "/lib/materials/methods/foliage.glsl"
 
@@ -76,5 +100,10 @@ void main() {
   // the length from object vertex to camera center
   vertexToCameraDistance = length(positionInView.xyz);
   normal = gl_NormalMatrix * gl_Normal;
+#if SURFACE_WETNESS == 1
+  wetnessProfile = getWetnessProfile(materialId);
+  // Geometric orientation avoids a moving wet/dry pattern from normal maps.
+  wetnessNormalUp = (mat3(gbufferModelViewInverse) * safeNormal(normal)).y;
+#endif
 }
 #endif

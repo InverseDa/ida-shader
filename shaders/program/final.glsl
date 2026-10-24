@@ -1,5 +1,6 @@
 #include "/lib/constant.glsl"
 #include "/lib/common/color.glsl"
+#include "/lib/settings.glsl"
 
 // =====================================================================================
 // ============================== Fragment Shader ======================================
@@ -9,8 +10,6 @@ uniform sampler2D colortex0; // color after TAA
 uniform sampler2D colortex7; // bloom
 
 in vec4 texcoord;
-
-const float BLOOM_INTENSITY = 0.66;
 
 vec3 ACESToneMapping(vec3 color, float adapted_lum) {
     const float A = 2.51f;
@@ -41,13 +40,15 @@ vec3 vibrance(vec3 color, float strength) {
 
 void main() {
     vec4 color = texture2D(colortex0, texcoord.st);
-    vec3 bloom = texture2D(colortex7, texcoord.st).rgb;
-    color.rgb += bloom * BLOOM_INTENSITY;
-    color.rgb = ACESToneMapping(color.rgb, 0.92);
+    if (BLOOM_STRENGTH > 0.0) {
+        vec3 bloom = texture2D(colortex7, texcoord.st).rgb;
+        color.rgb += bloom * BLOOM_STRENGTH;
+    }
+    color.rgb = ACESToneMapping(color.rgb, EXPOSURE);
     color.rgb = linearToSrgb(color.rgb);
-    color.rgb = contrast(color.rgb, 1.03);
-    color.rgb = vibrance(color.rgb, 0.12);
-    color.rgb = saturation(color.rgb, 1.0);
+    color.rgb = contrast(color.rgb, COLOR_CONTRAST);
+    color.rgb = vibrance(color.rgb, COLOR_VIBRANCE);
+    color.rgb = saturation(color.rgb, COLOR_SATURATION);
     color.rgb = clamp(color.rgb, 0.0, 1.0);
     gl_FragData[0] = color;
 }

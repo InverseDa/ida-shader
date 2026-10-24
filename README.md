@@ -28,7 +28,9 @@ The current implementation targets the Overworld on Iris. It requires
    opaque particles enter deferred, translucent particles and rain use forward shading.
 6. `composite`: fused one-pixel reactive-mask expansion, directional spatial AA,
    and TAA with current/previous jitter compensation and depth-validated
-   history taps for static surfaces. Hand, foliage, dynamic entities/block entities,
+   history taps for static surfaces. Static surfaces without accepted history
+   also use current-frame spatial AA while history becomes available.
+   Hand, foliage, dynamic entities/block entities,
    particles, water, ice and sky use spatial AA instead. These dedicated geometry
    paths do not jitter. Covered pixels and their immediate neighbors reject history,
    even if the transparent layer did not write depth. History depth is positive
@@ -47,7 +49,7 @@ The current implementation targets the Overworld on Iris. It requires
 | colortex2 | Opaque surface octahedral normal, RG16 | Opaque geometry |
 | colortex3 | Effect view depth, R16F | Effect draws |
 | colortex4 | Packed 12+12-bit octahedral normal and readiness/jitter sign in R, unchanged FP32 hardware depth in G; RG32F; hand depth is invalidated | deferred only |
-| colortex5 | Opaque roughness, metallic, AO, material ID / 255 | Opaque geometry |
+| colortex5 | Perceptual roughness, F0/metal code, AO, packed material ID + sky-light level; RGBA8 | Opaque geometry |
 | colortex6/7 | Half-resolution Bloom, R11F_G11F_B10F | composite2/3 |
 | colortex8 | History RGB plus medium-tagged linear depth A: positive air / negative water / zero invalid, RGBA16F; retained across frames | composite |
 | colortex9 | Linear vanilla lightmap before deferred; immutable raw opaque radiance afterwards, RGB16F | Opaque geometry, then deferred |
@@ -75,6 +77,323 @@ water surface. Sky radiance functions take **view-space**
 directions; cloud density and slab intersections use **absolute world** positions.
 Reflection plane quantization happens in absolute world height before conversion
 back to camera-relative coordinates.
+
+## Material and color baseline
+
+Shader settings now expose **Materials**, **Lighting Baseline** and **Exposure and
+Color** (with Chinese and English labels). `MATERIAL_MODE=0` is the default Vanilla
+mode: geometry normals and built-in material values, with no normal/specular map
+reads. Select `MATERIAL_MODE=1` explicitly for a LabPBR resource pack; the old
+heuristic format detection is no longer used.
+
+The LabPBR path reconstructs normal Z from RG and reads material AO from B. Its
+derivative tangent frame handles UV mirrors and small derivatives, with no
+texture-dependent branch around derivative evaluation. Specular R is stored as
+perceptual roughness (`1 - smoothness`); the GGX BRDF squares it to alpha once.
+The base minimum roughness remains 0.08; bounded screen-space normal variance
+now increases the filtered roughness before it enters the existing material buffer.
+Specular G retains the original F0/metal code: 0..229 are dielectric F0, 230..255
+use albedo as conductor F0. Predefined metal optical constants are not yet used.
+Black/white specular pixels are valid material data, so they are not treated as
+missing textures. An absent map in LabPBR mode uses Iris's texture defaults;
+Vanilla mode is the explicit fallback for non-PBR packs.
+See the [LabPBR material standard](https://shaderlabs.org/wiki/LabPBR_Material_Standard).
+
+Rain-night bright-spot hardening (2026-10-24): collapsed/non-finite tangent-frame
+results fall back to geometry normals before G-buffer storage and normal-variance
+evaluation. Fresnel clamps cosine inputs and evaluates the fifth power with
+multiplications, avoiding GLSL's undefined negative-base `pow` after FP32 dot
+product overshoot. AA sanitizes current/neighbour colors and rejects non-finite
+history RGB before accumulation, keeping invalid samples out of the Bloom source.
+Valid finite HDR colors retain their brightness. These changes add arithmetic,
+with no additional texture reads, buffers or passes. Switching LabPBR to Vanilla
+reduced the reported rain-night spots, but the patched LabPBR path still needs
+the same-view in-game retest described in GAME_ACCEPTANCE.md.
+
+No attachment was added or enlarged. The material alpha byte stores the material
+ID in the low four bits and the 0..15 sky-light level in the high four bits.
+Classification and TAA decode only the ID bits; material reads use `texelFetch`
+so neighboring metadata cannot interpolate. Sky diffuse/specular fill is gated
+by this sky-light level, while the vanilla Lightmap (including block light) and
+emission remain independent. The 16-level sky approximation needs an in-game
+check at cave entrances; it is not a visibility ray or GI. Forward surfaces use
+the same encoding and lighting model. Hands remain Lightmap-only and skip PBR
+samples; texture emission, porosity, texture SSS and POM are not implemented.
+
+Exposure 0.92, Bloom strength 0.66, threshold 0.68 and existing display adjustments
+remain the defaults. Lighting scales and post controls are compile-time options,
+with no new pass. For a neutral comparison use contrast 1, vibrance 0, saturation
+1 and Bloom strength 0. This skips Bloom texture work and writes black targets;
+the two passes and their allocations still exist. Tone
+mapping still follows linear scene/Bloom composition and precedes sRGB encoding.
+Visual tuning and GPU timing remain game acceptance work, tracked in [ROADMAP](ROADMAP.md).
+
+## Highlight and motion stability
+
+The **Highlight and Edge Stability** settings page exposes `SPECULAR_AA` and
+`DYNAMIC_AA_STRENGTH`, both defaulting to 1.0. These are compile-time controls;
+they add no render targets or passes. No object motion-vector buffer was added.
+
+LabPBR normal variation broadens the GGX lobe using bounded normal-derivative
+variance, a technique also described in [Filament's specular AA documentation](https://google.github.io/filament/main/materials.html#anti-aliasing:specularantialiasing).
+Derivatives are evaluated before alpha discard. The filtered perceptual roughness
+is written into the existing RGBA8 material target. GGX now separates its tiny
+division guard from a peak cap of 64: the previous large denominator floor
+incorrectly made extremely smooth peaks darker and then brighter as roughness
+increased. Very glossy LabPBR materials therefore need a brightness comparison.
+Direct-sky rendering retains its original disks; reflected sun/moon disks are
+broadened with peak compensation. Ice computes derivatives before the per-pixel
+material branch, and both opaque and forward ice use this reflection filtering.
+AA variance does not modify planar-reflection eligibility, avoiding the existing
+roughness cutoff switching the reflection on and off.
+
+Water evaluates its five long/short waves once (previously eight evaluations
+across separate fine/coarse profiles), sharing the three long waves. Each wave
+smoothly fades between eight and two pixels per wavelength, skipping trigonometry
+when fully unresolved. The removed slope variance contributes to highlight width.
+Micro ripples now use one explicit-gradient sample of the existing noise texture,
+without the old nested procedural warp or its directional mean bias; unresolved
+micro ripples skip the texture read. Main wave directions, amplitudes and speeds
+remain unchanged, but the fine ripple pattern is intentionally different.
+Reflection highlights and sparkle lobes widen while reducing their peaks.
+Underwater surfaces use the same filtered wave profile.
+
+Spatial AA checks four cardinal neighbors, including thin horizontal/vertical
+features missed by the previous diagonal-only detector. Flat pixels use four
+color reads; edges use at most eight, as before. A bounded subpixel blend handles
+thin features even when the direction gradient is zero. Directional support is
+limited to the same 3x3 area protected by reactive dilation. HDR filtering uses
+a compress/filter/expand approximation to reduce bright edge fringes; it is not
+an energy-conserving light-transport filter. The strength option allows sharper
+edges when the default is too soft. Unaccepted static history gets spatial AA
+instead of an unfiltered frame. Accepted history is weighted by its valid bilinear
+coverage, and camera motion excludes Halton jitter and uses each screen axis's
+pixel scale. Reactive pixels still write invalid history depth.
+
+Color-target storage is unchanged. Additional ALU/derivative work and spatial AA
+on newly exposed static pixels must be timed in-game; reduced water calculations
+alone do not establish a net FPS gain. Screen-space reflection hit changes,
+subpixel geometry loss and normal-map variance already lost in texture mipmaps
+can still shimmer. Reflection confidence is handled as described below; dynamic
+temporal accumulation remains a separate decision after in-game acceptance.
+
+## Shadow and contact AO refinement
+
+The next stage follows shadows/SSAO, basic wetness, shore foam, then clouds/Bloom.
+The first batch retains the 2048 shadow map, five shadow queries, eight AO probes,
+all current passes and all buffer formats. Incremental render-target storage is
+zero. Shadow filtering now uses `sampler2DShadow` with matching Iris directives;
+it interpolates comparison results instead of comparing an interpolated depth.
+See [Iris hardware shadow sampling](https://shaders.properties/current/reference/buffers/shadowtex/#hardware-sampling).
+Each hardware query may compare multiple texels, so the unchanged query count
+does not guarantee unchanged GPU time. The kernel has no temporal randomization.
+Direct shadows and vegetation visibility both fade at the shadow-map boundary,
+including the filter footprint. Existing bias coefficients and daylight budgets
+are retained; shared angle/noon terms are evaluated once per shadow lookup path.
+
+AO uses exact depth/material texel pairs and reconstructs each sample at its
+texel center, accounting for its own jitter state. Early depth rejection uses
+the actual inverse projection, not an assumed equality between render distance
+and the clip plane. Four near and four wider probes use bounded 3D support,
+surface-plane rejection and smooth depth thresholds. The probe radius remains
+0.30–0.95 blocks; support fades to zero at twice that radius. First-person hand
+depth cannot occlude the world. Subpixel footprints and the final 65–95% of the
+render distance fade AO, with a zero-read exit when its contribution is zero.
+Rejected depth probes skip metadata/reconstruction; the upper bound remains
+eight depth plus eight material reads, with no extra normals, noise or history.
+
+CPU checks cover filtered shadow-edge continuity and atlas guard bands, flat
+and sloped self-occlusion, local contacts, mixed jitter, hand/sky/far rejection,
+and projections whose clip plane differs from render distance. Eight sparse AO
+probes still cannot resolve every thin contact or offscreen occluder; real-game
+contact strength, shadow acne, edge motion and GPU time remain acceptance items.
+
+## Basic surface wetness
+
+The **Weather and Wetness** page enables terrain wetness (default on, strength 1).
+Rain changes linear albedo and perceptual roughness in the existing terrain pass.
+The 305 listed vanilla blocks retain their original dry lighting and static TAA.
+With puddles enabled, four spare packed material IDs also carry rain-retention
+classes without changing the RGBA8 format. Basic wetness uses these responses:
+
+| Terrain profile | Maximum linear albedo reduction | Wet roughness target before normal filtering |
+| --- | --- | --- |
+| Soil / moss | 28% | 0.70 |
+| Sand / gravel | 22% | 0.76 |
+| Stone / masonry | 12% | 0.38 |
+| Wood | 18% | 0.50 |
+
+Targets apply at full wetness to exposed upward faces. Smooth LabPBR materials
+darken less and never become rougher; the wet target uses the already computed
+normal variance so wetting cannot undo specular AA. Metal-coded pixels are left
+unchanged. F0, AO, alpha, normal direction and packed skylight remain intact.
+This baseline does not decode texture porosity or add a water coating BRDF.
+
+Shelter uses raw interpolated skylight levels, independent of lightmap RGB,
+time of day and sun-shadow visibility. Levels at or below 14 reject rain;
+14–15 fade into exposure. Vertical faces have reduced response and undersides
+remain dry. This conservative approximation can miss exposed surfaces or leak
+at eaves, and cannot reliably distinguish transparent roofs or complex cutouts.
+There is no vertical rain shadow map. Leaves/plants, entities, held items, water,
+ice, emissive blocks and unclassified terrain retain their existing materials.
+
+`surfaceWetness` is an [Iris CPU custom uniform](https://shaders.properties/current/reference/shadersproperties/custom_uniforms/)
+using rain strength only when the player's biome reports rain. Local Iris 1.8.8
+`parsing.SmoothFloat` bytecode confirms its parameters are scaled by 0.1 before
+applying exponential decay in seconds: our values 120/480 give approximately
+12 s wetting and 48 s drying half-lives, in addition to the engine rain ramp.
+The first update uses the current target; shader reload/world load does not
+preserve previous surface moisture. Biome transitions also fade, but the single
+player-biome value cannot describe distant biome or altitude boundaries.
+
+With **Puddle Reflections off**, no texture samples, targets, GPU history or passes
+are added. There are three
+extra scalar varying components, a vertex normal transform and fragment ALU;
+dry/ineligible fragments skip response work. In this basic mode ground SSR is disabled and
+color-target storage remains 1471.12 MiB at 5120×2739. GPU time is unmeasured.
+The compile-time switch removes the wetness path; strength 0 is a visual control,
+not the recommended performance baseline. Compare switch on/off after weather
+settles, and see F4 in [GAME_ACCEPTANCE.md](GAME_ACCEPTANCE.md) for roof, rain-night
+and transition tests. Four material/switch combinations compile and link offline.
+
+## Local puddle reflections
+
+The user's follow-up confirmed basic wetting was visible and requested reflected
+trees/buildings. **Puddle Reflections** now defaults on under Weather and Wetness;
+disabling it keeps the earlier basic wetness response. This extends stage F's
+scope and texture-read budget; it is not a zero-GPU-cost adjustment.
+
+Puddles form local, world-anchored patches using one read of the existing noise
+texture (the custom asset has 128 texels, about 3 blocks per texel). Coverage grows and shrinks with the same
+smoothed weather. Stone retains more water, followed by wood/soil, with little on
+sand/gravel. Only eligible upward terrain is affected; leaves, plants, entities,
+water/ice, metal-coded pixels and immersed views are excluded. The terrain pass
+tags upward geometric faces before normal mapping using the existing material ID.
+No depth derivatives are used to infer eligibility: neighbouring grass or a cliff
+cannot change a ground pixel's puddle classification as the camera moves.
+Skylight shelter remains approximate
+and the stored 16-level mask can have sharper boundaries than base wetness.
+
+The existing opaque-atmosphere pass reads the immutable normal/depth snapshot and
+raw scene radiance, applies puddles, then applies atmosphere and early effects in
+their original order. Materials 11–14 reuse the existing four-bit field and retain
+static TAA. No additional pass, buffer, texture allocation or GPU history is needed.
+The air/water interface is level, with 2% face-on Schlick Fresnel that
+increases at grazing angles. This replaces the overly pale 10% + cubic blend.
+Scene/sky mixing preserves the Fresnel budget as hits enter
+and leave the screen. Rain/night sky fallback omits sharp disk glare; HDR values
+of actual scene hits are retained. It does not reuse a dry material's F0 as water.
+
+Search fades from 32 to 64 blocks from the camera and is skipped when dry, sheltered,
+non-horizontal, outside a puddle patch or below the reflection-contribution threshold.
+The puddle path uses the packed normal/depth snapshot to propose local ray/plane
+intersections, then samples and validates the proposed position. This replaces
+bisection across alpha holes, which could converge on the wrong edge and drop a
+visible canopy. The nearest future plane hint is retained within the current ray;
+failed hints allow continued search, while actual cutout holes stay transparent.
+The march and validation share a hard **25-probe budget** (up to 24 march steps).
+Reconstructed positions use the fetched pixel center and its jitter state; a full
+3D error bound of 0.035–0.18 blocks rejects unrelated silhouettes, and coplanar
+ground is excluded. A normal is only a search hint, never proof of a hit.
+Each searched pixel uses at most **1 noise + 50 packed snapshot + 1 raw-color reads**;
+misses do not read scene color. The color is taken from the verified depth texel,
+avoiding unrelated neighbours. The maximum remains unchanged from the first motion
+fix; empty searches may use more probes, while flat hits need fewer refinement
+queries. This is not a measured speedup. The water/ice search budget is unchanged.
+Large rainy foregrounds can still add meaningful
+GPU cost despite the 0 MiB target increment; use the independent switch to measure.
+
+This is a screen-space approximation, not a water simulation. Off-screen geometry
+falls back to sky; transparent layers are not reflected, hit loss/thin geometry can
+still shimmer, and reflected travel does not integrate its own atmospheric volume.
+It does not infer true terrain depressions or model pooling around grass blades.
+The first version failed the user's motion/appearance check; the following wall
+tests did not cover the canopy holes reported afterwards. The regression now runs
+1,440 solid, 576 cutout-canopy and 272 layered leaf/wall cases, including camera
+motion, jitter and two resolutions. In the fixed synthetic canopy samples,
+visible-leaf recovery improved from 10/80 to 77/80, with zero misplaced leaf hits;
+227 unambiguous visible layered samples retain the correct layer, including 35
+wall hits through real holes. These are CPU regression results, not in-game hit
+rates; screen-space occlusion, subpixel alpha edges and finite steps still lose data.
+Six Vanilla/LabPBR × puddles/base-only/wetness-off configurations are validated
+offline; corrected in-game appearance and GPU timing remain open under F6.
+
+## Cloud shadows and vegetation transmission
+
+The **Cloud Shadows and Vegetation** settings page provides independent compile-time
+switches and strengths. Both effects default on: cloud shadow strength 0.8 and
+vegetation transmission strength 0.65. No render target, history, pass, texture or
+uniform was added. Standard surface direct light also fades to 45% in full rain;
+Lightmap, sky fill and emission retain independent lighting budgets.
+
+Surface direct lighting uses the actual world-space light elevation. It fades
+smoothly to zero at the horizon, retaining the clear-noon and high-moon reference
+levels. Legacy dawn/dusk sky tints reach sRGB 2 (about 4.95 in linear space);
+surface lighting now preserves their hue while bounding that source gain. The
+sky-art tint table is still used for sky/atmosphere rendering. This prevents its
+HDR color gain from multiplying surface highlights and vegetation backlighting.
+
+Visible clouds and ground shadows share `cloud_density.glsl`: a 384-block weather
+field and continuous 96x48x96-block 3D value noise, common wind, the 168–286 block
+layer, vertical envelope and extinction coefficient. Two adjacent lattice-plane
+reads form the 3D body, plus one weather read, using the existing 128x128 custom
+noise asset and its queried bound texture size. Rain smoothly increases coverage.
+Ground shadows integrate the vertical envelope analytically (85 blocks of equivalent
+full density for a complete column) and evaluate the 3D coverage once at the
+midpoint of the remaining light path. This costs at most three existing noise reads
+per applicable fragment, with early coverage rejection. Noise uses explicit LOD 0
+inside divergent branches. Absolute world coordinates prevent camera translation
+from dragging the shadow pattern; the active sun/moon direction matches the BRDF.
+
+Receivers above the layer, surfaces with zero sky light and lights below the horizon
+fade threshold skip all added reads. Light elevation fades between 0.04 and 0.16
+to bound grazing-angle projection and ease sun/moon transitions. The cloud term
+attenuates standard direct surface lighting and plant transmission only. It does
+not darken ambient light, emission, atmospheric scattering or sky reflections.
+Cloud contrast has a smooth optical-depth bound instead of tending towards black
+along thick, low-angle paths. At the default strength, clouds alone remove at most
+40% of the clear-day direct source, 18% in full rain, 14% at night and 6.3% on a
+rainy night. These are shader bounds, not measured image-brightness changes.
+Rain already attenuates the source; reducing cloud contrast avoids compounding
+that loss. The combined directional weight never increases with rainfall.
+The single column sample approximates vertical and oblique paths through changing coverage;
+it is not a second volumetric march or an exact cloud-shadow map.
+
+Material IDs 9/10 classify 11 leaf types and 56 static plants, including pale oak,
+saplings, crops, flowers, vines and aquatic plants; names were checked against the
+installed 1.21.4 assets. Existing RGBA8 metadata stores these IDs without expansion.
+These groups retain static camera-only TAA and gain no new animation. Short grass
+and fern remain the original animated foliage group with spatial AA. Solid trunks,
+grass blocks, cactus, bamboo stalks and flower pots are not assigned thin foliage
+transmission; unknown/modded blocks require explicit mapping.
+
+Thin vegetation uses a view-facing normal on both sides, plus a broad backlighting
+lobe tinted by its linear texture/biome color. Leaves have a lower transmission
+scale than thin plants. Sky-light visibility, dielectric reflectance, metallic
+classification, weather and cloud visibility constrain the result. The existing
+five PCF samples also return unlifted light visibility, avoiding another shadow
+lookup or the artistic shadow-floor boost for transmission. Range, grazing-angle
+and shadow-atlas boundaries fade continuously. Fully blocked, in-range samples
+and zero sky-light samples receive no added transmission; outside shadow coverage,
+the sky-light level is only an approximation to occlusion.
+
+Peak transmission is capped at 60% of that material's unshadowed normal-incidence
+diffuse reference, even at the highest strength option. Weather weighting lowers
+this cap to 39% in rain, 21% at night and 13.65% on rainy nights, before sky and
+blocker visibility. This is a local backlighting budget, not a full SSS energy
+model. The extra shadow-map modulation of sky fill also softens in rain/night
+(floor 0.70 to 0.90), while material AO/SSAO and the original sky-fill budget stay
+active. Lightmap and emission are not raised to compensate for dark shadows.
+
+The old moving-foliage ambient multiplier 1.26 is now 1.0, and its extra shadow lift
+is removed. These baseline/classification changes remain when transmission is off.
+This is local thin-surface backlighting, without a thickness map, multi-layer light
+transport or texture SSS. Dense cubic leaf blocks can remain dark from self-shadowing.
+The existing procedural water glints and Lightmap-only hands/particles do not run
+the added cloud lookup. Day/night/rain arithmetic has offline regression coverage;
+visual tuning and GPU timing remain game acceptance work. This calibration adds
+only arithmetic, keeping the existing noise and five-tap PCF budgets, with no new
+storage. Low sample counts and unchanged storage do not establish an FPS result.
 
 ## Underwater rendering
 
@@ -125,15 +444,41 @@ subtracted away by water composition. See the
 
 ## Reflection and memory budget
 
-Reflection keeps the existing 14 main plus 12 lateral planar probes, five-tap
-color filter, and 12-step submerged search. A zero planar weight skips the entire
-search. Probes reject near-plane/off-screen positions before snapshot reads, and
-reject exactly zero depth/reprojection/height/alignment masks before expensive
-normal and world-space work. The five color taps are deferred until the final
-weighted score is useful; the small-score best-candidate fallback is preserved.
-Jittered projection reuses its first snapshot read if the destination texel did
-not change, including on unjittered dynamic surfaces. Crossing a texel boundary
-still performs a second read. Search length and reflection mixing are unchanged.
+Above-water water/ice reflection keeps the existing 14 main plus 12 lateral
+planar probes at fixed positions. A zero planar weight skips the entire search.
+Probes reject near-plane/off-screen positions before snapshot reads and reject
+zero depth/reprojection/height/alignment masks before later work. Jittered
+projection reuses its first snapshot read if the destination texel did not change,
+including on unjittered dynamic surfaces; crossing a boundary still reads again.
+The helper also returns its original unjittered UV without another projection or
+texture fetch. The separate 12-step submerged reflection search is unchanged.
+
+Geometric reliability and screen-edge coverage are separate. Edge coverage uses
+the unjittered UV, a two-pixel guard, and a fade spanning 14% of the shorter screen
+dimension (at least eight pixels). Both axes use the same pixel width and multiply
+at corners. Artistic visibility scales geometry reliability before this envelope,
+so it cannot amplify away the edge fade. The old duplicate edge scoring and
+power/planar-confidence boost have been removed. Hit confidence now chooses scene
+versus sky without changing material reflectivity; the water Fresnel/transmission
+budget no longer varies simply because a screen-space candidate appeared.
+
+Candidates use squared quality/coverage scores with a smooth entrance from 0.002
+to 0.02. Color remains a weighted average, with a 0.0004 support prior damping
+resolved confidence when the total weight is tiny. There is no switch to a single
+best candidate at low weight. Missing/weak support fades toward the existing sky
+fallback; raw scene color is still tinted once after the resolve. Weak and ice
+reflections may consequently be subtler than before and need visual comparison.
+
+Zero-weight candidates skip color reads. Each remaining candidate needs one
+bilinear HDR read when confidence times material reflectivity is at most 0.04.
+Four neighboring reads enter with a smooth weight between 0.04 and 0.20, reaching
+the original five-tap filter at 0.20. Reads use explicit LOD 0 inside divergent
+branches and stay within texel-center bounds. The maximum remains 130 color reads
+per search, plus up to 52 snapshot reads; geometry probe count is unchanged.
+No buffer, history texture or pass was added. Lower nominal texture work does
+not establish a GPU speedup: branch behavior and scene coverage need measurement.
+This controls score/edge transitions, not discontinuous loss of a strong geometry
+hit at an occluder or subpixel silhouette. No reflection history was introduced.
 
 TAA now reuses color buffer 0, reducing effect-depth buffer 3 from RGB16F to
 R16F. The linear-depth history in buffer 8 uses RGBA16F; its rounding error is
@@ -160,17 +505,37 @@ reuses the view position already reconstructed for depth validation. Removing
 the intermediate color/mask pass avoids one full-screen RGB16F + R8 write and
 subsequent read (14 logical bytes per pixel; actual bandwidth depends on caching).
 
-Cloud density rejects out-of-layer samples before noise fetches, and skips finer
-noise octaves when their upper bound cannot reach the existing coverage threshold.
-Emission attenuation traces the same cloud opacity without computing cloud color
-or self-shadow samples. Full cloud lighting computes its ray-constant phase term
-once; the 12 steps, density shape and opacity termination are unchanged. The
-underwater water path also skips the redundant air-side background lookup.
+Cloud rays reject segments outside the layer; unresolved frequencies fall back to
+their mean, and an upper-bound rejection can skip the weather lookup. The 12-step
+march uses a fixed spatial stratum phase (no per-frame random phase), analytic
+vertical-envelope integration and footprint filtering. Both sky and opaque-backed
+clouds now use full opacity, without the old sky-only 0.32 factor. Emission-only
+attenuation uses identical sampling/opacity and omits color calculations.
+Cloud lighting reuses local coverage for an approximate column shadow, removing
+the extra density lookup at each step: at most 36 noise reads instead of 72 for a
+lit ray, with no new buffers/passes/history. The range now fades from 2048 to 4096
+blocks instead of stopping at 900; greater horizon coverage and added arithmetic
+mean a net GPU improvement still needs measurement. The underwater water path
+also skips the redundant air-side background lookup.
 
 Bloom alone uses packed unsigned HDR; scene color, lightmaps and reflection
 sources retain RGB16F. Packed Bloom has lower color precision and should be
 checked on dim colored glows. These formats are supported by the installed
 Iris 1.8.8 and documented in the [Iris format table](https://shaders.properties/current/reference/buffers/image_format/).
+
+Bloom now fuses extraction/downsampling with an eleven-tap horizontal Gaussian,
+then filters vertically in the second existing pass. Thresholding individual
+source texels before interpolation keeps the extraction independent of the
+filter's sampling phase. The normalized kernel (sigma 1.8 half-resolution pixels)
+produces a compact glow without the old sparse rings. Horizontal extraction uses
+44 single-texel reads; vertical paired linear taps use six. Total queries drop
+from 72 to 50 per half-resolution pixel, excluding final's unchanged one read.
+Iris 1.8.8's RenderTarget selects linear min/mag filtering for non-integer formats,
+including these packed targets. Bounds use texel centers, including odd sizes.
+The prefilter's 32 HDR limit, soft knee, threshold, strength and exposure defaults
+remain unchanged. Tiny-source energy and peak brightness can differ from the old
+interpolate-then-extract path; review compactness in game. More threshold arithmetic
+and different cache behavior mean the query reduction is not a GPU timing result.
 
 Buffer 9 changes from lightmap to raw opaque scene when deferred finishes.
 Automatic ping-pong flipping keeps the lightmap read separate from the radiance
@@ -200,8 +565,56 @@ Install Python 3.10+ and put `glslangValidator` on PATH, then run:
 
 ```text
 python tools/validate_shaderpack.py --output-dir <scratch-directory>
+python tools/validate_shaderpack.py --material-mode 1 --output-dir <another-scratch-directory>
+python tools/validate_shaderpack.py --cloud-shadows 0 --vegetation-transmission 0 --output-dir <disabled-effects-directory>
+python tools/validate_shaderpack.py --bloom-strength 0 --output-dir <disabled-bloom-directory>
 ```
 
+Each invocation compiles one material mode (default 0). It checks that Vanilla
+has no PBR map reads and LabPBR uses one normal and one specular read per applicable
+fragment path. Additional numerical checks cover all 256 metadata combinations,
+all 256 F0 codes, normal/roughness boundaries, mirrored/small UV tangent frames,
+exposure monotonicity and independent sky/Lightmap/emission terms.
+Program-state checks reject blend/alphaTest keys that Iris cannot bind, unused
+attachment overrides and missing translucent-entity separation. On Windows,
+`python tools/check_entity_opacity_gpu.py` (numpy and glslangValidator required)
+renders the actual hand shader with production MRT formats. It reproduces the
+old property-name failure, checks 256 sky-light/background combinations, early
+effect occlusion and five skin-alpha cases. This is separate from game acceptance.
+Stability checks execute shader expressions for roughness and GGX peak bounds,
+highlight integral preservation, wave cutoff continuity, flat/thin/HDR/screen-edge
+AA with its eight-read budget, and 48 motion/jitter cases. Reflection checks cover
+edge/corner continuity at four aspect ratios, candidate winner/threshold crossings,
+weak-support decay, bounded confidence, constant Fresnel composition, and the
+0/1/5-read color filter with a 130-read search ceiling. These synthetic cases do
+not replace pixel comparison in the game.
+Nature checks compare analytic cloud-column length with numerical volume integration,
+exercise height/horizon boundaries, verify shared world/wind coordinates and the
+three-noise-read budget, and test vegetation IDs/TAA, two-sided backlight, metal,
+cave and blocker rejection, plus shadow coverage transitions. Calibration sweeps
+cover the actual 24-hour tint interpolation and day wrap, light elevations,
+rain/night cloud bounds, monotonic rain response at every cloud strength, the
+vegetation diffuse budget and the bounded sky-fill shadow floor. The two switches
+can be independently set to 0/1 for compile checks; disabled paths are checked in
+preprocessed deferred lighting.
+Cloud checks execute the actual production march for 147 below/inside/above-layer
+rays, checking lit/transmission-only opacity equality, uniform-column integration,
+night/rain lighting bounds and the 36-read limit. Additional checks cover the 3D
+lattice, 128/256 texture sizes, world scale, coherent wind and filter continuity.
+`tools/render_cloud_preview.py --output <preview.png>` uses the real shaders and
+noise in a hidden Windows OpenGL context (requires Pillow). Its isolated sky view
+has no game terrain/TAA/exposure pipeline and is not game acceptance evidence.
+Bloom checks execute threshold-before-interpolation, normalized DC gain, HDR and
+edge bounds, tiny/odd sizes, paired bilinear equivalence and eight moving emitters'
+extracted-energy preservation. `tools/check_bloom_gpu.py --output <preview.png>`
+(Windows, numpy and Pillow) runs the actual Bloom passes in hidden OpenGL with
+RGB16F input and packed HDR targets. It checks 18 synthetic scenes, including dim
+colors and odd sizes; disabled programs must eliminate source samplers. The PNG
+shows amplified isolated halos; it is neither a game capture nor GPU timing.
+Water sunlight checks run 4,480 lighting states and 16 camera rotations against
+the production highlight: clear-noon baseline, rain/direct-strength response,
+night/horizon/shelter rejection and continuous sky-level gating. These add no
+texture reads and do not claim accurate directional roof or cloud visibility.
 The validator expands includes, compiles all stages, links vertex/fragment pairs,
 checks active MRT branches, attachment sizes, immutable snapshot ownership,
 per-buffer blending and history retention, and tests depth linearization against
@@ -214,7 +627,8 @@ early/late effect blending, foreground/background effect occlusion, and buffer
 reuse. FP16 tests cover every depth interval in range; reflection tests check
 zero-mask rejection boundaries and compare the actual cached-fetch helper with
 the original two-fetch lookup over 2,928 probes (eight jitter phases, mixed
-static/dynamic texels, three sizes and viewport boundaries). The validator
+static/dynamic texels, three sizes and viewport boundaries), including an unchanged
+unjittered output UV across mixed jitter states. The validator
 also checks 49,152 signed snapshot round trips, bit-exact hardware depth,
 sampled normal quantization error, all 512 reactive neighborhoods at nine pixel
 positions, and 20,000 cloud-noise bounds. The validator
@@ -224,6 +638,9 @@ Expanded files remain in the scratch directory
 for diagnostics. It does not emulate Iris patching or validate rendered pixels.
 
 In-game acceptance checks:
+
+The focused day/night/weather protocol, fixed conditions and measurement forms are
+in [the in-game acceptance checklist](<D:/Minecraft/Default/.minecraft/versions/1.21.4-Fabric 0.18.4/shaderpacks/ida-shader/GAME_ACCEPTANCE.md>).
 
 - Reload the pack and resize the window: no shader/FBO errors or stale history.
 - Stand still, rotate and walk past edges: static terrain should converge without
@@ -262,6 +679,27 @@ In-game acceptance checks:
   camera motion should not introduce new normal-stepping artifacts. Check the
   outermost screen pixels and static terrain next to moving mobs after AA fusion.
   Compare clouds from below/inside/above, including glint and eyes behind clouds.
+- Compare `SPECULAR_AA` 0 and 1 while moving past low-angle water glints, near/far
+  ice and fine LabPBR normal maps. Check that bright spots widen without a new
+  moving brightness peak, and compare glossy-metal brightness after the GGX fix.
+- Compare dynamic AA strengths 0, 0.5 and 1 on moving mobs, held items, grass,
+  fences and thin particles; check silhouette sharpness and newly revealed
+  terrain. Include a camera teleport, resize and water entry/exit for history.
+- Time close/distant water and a quiet land view at the same resolution; water
+  noise savings and added derivative/spatial work have different scene costs.
+- Slowly pan shore/tree/building reflections across all four screen edges and
+  corners, then repeat on ice and with a wide/tall window. Check smooth fallback,
+  overly faint ice reflections, and remaining strong-hit occlusion flicker. Test
+  both lateral/vertical camera motion, near/far water and LabPBR ice; record GPU
+  frame time at fixed weather, time, resolution and view distance.
+- Toggle cloud shadows over a sunlit plain or coast and walk/rotate beneath moving
+  clouds; the pattern must remain world anchored. Repeat below/inside/above the
+  cloud layer, at sunrise/sunset, in rain and at night; inspect horizon transitions.
+- Compare front/backlit leaves, short grass, tall plants, flowers and crops with
+  transmission 0/0.65/1. Check building shadows, closed caves, pale oak, underwater
+  plants and both resource-pack modes. Dense leaf self-shadowing is expected, but
+  leaves should not gain unconditional ambient brightness. Time a forest, plain
+  and heavy transparent-overdraw scene with each effect independently disabled.
 
 ## Remaining limitations
 
@@ -279,11 +717,14 @@ cannot be individually occluded. Early emission is not present in the raw opaque
 reflection snapshot, although it remains visible through the composited water layer.
 There are no object motion vectors: the dynamic path uses current-frame spatial
 AA, not temporal supersampling; it cannot fully remove subpixel/specular shimmer.
-PBR texture decoding remains
-a simplified normal/smoothness/metallic convention, not full LabPBR support.
+PBR has an explicit basic LabPBR path, but texture emission, porosity, texture SSS,
+POM and predefined metal optical constants remain unsupported. Hand lighting is
+still Lightmap-only; the isotropic Lightmap response is not a directional local
+light reflection. The minimum perceptual roughness is still 0.08.
 Vanilla lightmap is an ambient approximation; this is not GI or physically complete
-light transport. Cloud shadows on terrain, geometric water displacement and other
-previously unimplemented effects have not been added. Offline checks cannot establish
+light transport. Geometric water displacement and other previously unimplemented
+effects remain outside this stage. Cloud shadows use a single horizontal coverage
+sample; vegetation transmission has no thickness or multi-layer transport. Offline checks cannot establish
 GPU frame time. The fogged snapshot, R8 mask, early RGBA16F effect layer and
 opaque-atmosphere pass cost memory/bandwidth. TAA reuses scene color, and raw
 opaque radiance reuses the consumed lightmap pair; phase detection reuses the
@@ -291,27 +732,68 @@ packed snapshot sentinel. Buffer 4 retains full-precision hardware depth in
 half the former storage; further precision/resolution cuts need visual targets
 and in-game profiling.
 Cloud rays skip segments outside the layer and terminate above
-99.5% opacity; zero-weight reflection candidates skip their five HDR color taps.
+99.5% opacity; zero-weight reflection candidates skip HDR color reads, while weak
+contributions use one bilinear color read and strong ones use the five-tap filter.
 The net performance change needs in-game GPU timing, especially inside clouds or
 with heavy transparent overdraw.
 
 ## Roadmap checkpoint and effect alignment
 
-基础修复已进入实测收尾阶段。已完成的代码检查不等于游戏画面验收；当前优先
-确认水面/冰面、动态物体边缘、特殊效果和窗口重载没有回退，并在相同视角、
-分辨率、天气、视距下记录稳定后的 GPU 帧时间和显存，再判断下一处瓶颈。
-后续更大幅度的开销削减通常涉及降分辨率、减少采样或改变效果实现，需要与
-画面目标一起确定。现阶段不预设继续降低云、反射、阴影或 Bloom 的质量。
+当前版本的主线实现已完成，进入收尾：冻结新效果范围，补必要缺陷、最终
+场景巡检和性能记录。状态与已知边界见 [ROADMAP.md](ROADMAP.md) 顶部。
+水面额外太阳闪光现已接入共同天气 / 直射强度与世界空间太阳高度衰减，并
+复用天空光等级做保守遮蔽；晴天高太阳下保留原基准。此项新增纹理读取与
+渲染缓冲均为 0，精确方向阴影 / 云影仍未接入该闪光项；不改变天空圆盘倒影。
+本轮新画面按 [最终巡检](GAME_ACCEPTANCE.md) 的 S-A 复验，云层精修留待后续。
 
-下面是用于下一轮讨论的清单；“候选”尚未作为承诺实现的新需求。
+后续水体透射修正（S5）：移除固定浅青色与零深度染色，按 RGB 吸收并使用局部
+Lightmap 控制散射，轻量复用水面顶点群系色；深水继续衰减，不再卡在 34 格。
+泡沫只接纳浅处实体接触，并排除海草 / 树叶，避免把深水物体轮廓误涂成白色。
+水体与泡沫共用一次 Lightmap，泡沫候选最多读取一次已有材质和一次原噪声；
+无新增深度查询、pass 或渲染缓冲（0 MiB）。代价是只可见深处岸壁时可能缺少泡沫。
+散射仍是局部光照近似，不含水中光源传播或焦散；透明叠层使用保守的标量透射。
+1440 组颜色 / 光照 / 水深与 576 组透明合成定向检查通过；游戏画面按 S-F 对比
+截图同一海岸的白天 / 13000 / 深夜，GPU 增量待测。
+
+人物 / 手部假透明修正（S6）：Iris 的混合与 alphaTest 配置改用无目录程序名，
+避免材质编号与背景混合、早期特效穿过手部；启用实体透明分流，让前向透明人物
+在延迟光照之后绘制。真实皮肤镂空 / 外层和透明物品继续使用原 alpha。
+独立 GPU 回归覆盖 256 组天空光 / 背景与 5 组 alpha；没有增加采样、全屏 pass
+或渲染缓冲。游戏内按 S-G 检查石墙前手部、第三人称皮肤和水边 / 特效叠层。
+
+上一阶段“材质与颜色 → 高光和运动稳定性 → 云影与植被透光”实现已完成，
+用户已整体确认常规画面通过；雨夜亮点修复复测、配置与量化性能记录单独跟踪。
+
+本轮主线：**阴影与 SSAO 优化 → 基础湿润 → 岸边泡沫 → 云层与 Bloom 优化**。
+阶段范围、预算与进度见 [ROADMAP.md](ROADMAP.md)。阴影 / 接触 AO 与基础湿润
+已完成代码和离线回归；按用户反馈补充局部积水倒影。新增渲染缓冲均为 0 MiB；
+基础湿润无新增读取；积水改为验证射线交点，每个有效像素最多 1 次噪声、
+50 次快照与 1 次颜色读取。用户接受不可见树叶面 / 离屏几何缺失为 SSR 边界，
+不继续以此阻塞主线；F4 / F6 其余场景及性能记录仍保留。
+维持 5 次阴影查询和最多 8 组 AO 采样。G 岸边泡沫已接入：复用岸底深度 /
+法线和波纹，世界坐标碎泡沫，复用水体 Lightmap 漫反射；仅近岸候选最多
+1 次材质 + 1 次噪声读取，无新增深度查询或缓冲。设置位于“水面”，
+默认开启、强度 1；水下、侧面、深水与植被跳过，仍受可见岸底信息限制。
+两种材质模式 × 泡沫开 / 关的编译和数值回归通过；G4 需要游戏内对照。
+H1 云形已获用户阶段性认可，云细节按要求暂缓，完整场景与帧时间记录仍保留。
+H2 Bloom 已改为提取后插值和连续可分离高斯光晕；两阶段纹理查询由 72 降到
+50 次，保持现有曝光、阈值和两个半分辨率目标。新增渲染缓冲仍为 0 MiB。
+独立 OpenGL 与数值回归通过；2026-10-24 用户确认本轮 Bloom 当前配置的
+游戏内画面验收通过。云细节优化暂缓，GPU 帧时间与实测显存记录仍待补。
+其他阶段记录独立保留，后续回归条件见 [GAME_ACCEPTANCE.md](GAME_ACCEPTANCE.md)。
+
+默认质量继续复用已有数据和缓冲。若更大幅度的削减需要降低分辨率或改变效果，
+将根据计时与画面目标另行决定；不把采样次数或逻辑显存预算当作实测性能。
+
+下面保留其他效果方向作为候选；未进入上述主线的项目尚未排期。
 
 | 效果方向 | 当前基础 / 老效果待优化 | 新效果候选 / 需要对齐的取舍 |
 | --- | --- | --- |
-| 光照与材质 | 线性 Lightmap、简化 PBR、阴影和 SSAO；需对齐昼夜与洞穴观感 | LabPBR、自发光材质、透光/次表面效果；确定资源包与目标亮度 |
-| 天空与云雾 | 程序天空、体积云、距离雾；云内和大量透明物体仍需计时 | 地表云影、体积光、天气过渡；确定风格与可接受的体积采样预算 |
-| 水与反射 | 波纹法线、折射、水下吸收、屏幕空间反射；离屏和多层透明仍有限制 | 几何波浪、泡沫、焦散、离屏反射补偿；确定优先场景 |
-| 抗锯齿与稳定性 | 静态 TAA、动态空间 AA；无物体运动向量，细高光仍可能闪烁 | 动态时域积累、材质高光抗闪烁；确定拖影与锐度容忍度 |
-| 后期与颜色 | Bloom、固定曝光和色调映射；需实际画面校色 | 自动曝光、可配置调色；确定亮暗适应和默认色彩基准 |
+| 光照与材质 | 线性 Lightmap、原版 / 基础 LabPBR、阴影、SSAO、简化植被背光；需校准昼夜与洞穴观感 | 纹理自发光、纹理 SSS / 厚度与更多材质通道 |
+| 天空与云雾 | 程序天空、体积云、低采样地表云影、距离雾；云内和大量透明物体仍需计时 | 体积光、更精细的云影与天气过渡；确定风格与可接受的采样预算 |
+| 水与反射 | 波纹法线、折射、水下吸收、屏幕空间反射、基础岸边泡沫；离屏和多层透明仍有限制 | 几何波浪、浪花 / 泡沫输运、焦散、离屏反射补偿；确定优先场景 |
+| 抗锯齿与稳定性 | 静态 TAA、动态空间 AA、高光过滤、反射置信度过渡；细高光仍需实测 | 动态时域积累；确定拖影与锐度容忍度 |
+| 后期与颜色 | Bloom、可配置固定曝光和调色；需实际画面校色 | 自动曝光；确定亮暗适应和默认色彩基准 |
 | 环境与兼容性 | 主世界、水下和已列出的特殊绘制路径 | 下界/末地、熔岩/细雪、更多状态效果；先确定覆盖范围 |
 
 对齐时建议明确：参考画面与使用场景、必做/可选优先级、目标分辨率和帧时间预算、

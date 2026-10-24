@@ -1,7 +1,9 @@
 #include "/lib/constant.glsl"
 #include "/lib/util/functions.glsl"
 #include "/lib/materials/materialData.glsl"
+#if !defined(COLOR_ONLY) && !defined(PARTICLE) && !defined(GBUFFERS_HAND) && !defined(GBUFFERS_HAND_WATER)
 #include "/lib/materials/pbr.glsl"
+#endif
 #if defined(GBUFFERS_HAND_WATER)
 #define FORWARD_TRANSLUCENT
 #endif
@@ -32,21 +34,29 @@ in vec3 viewPos;
 #endif
 void main() {
     vec4 base = texture2D(texture, texcoord.st) * color;
+#if !defined(IDA_MATERIALS_PBR_GLSL) || MATERIAL_MODE == 0
     if (base.a <= 0.001) discard;
+#endif
     vec3 vanillaLight = srgbToLinear(texture2D(lightmap, lmcoord.st).rgb);
     vec3 albedo = srgbToLinear(base.rgb);
     vec3 geometryNormal = safeNormal(normal);
-    vec4 material = packMaterialData(0.82, 0.02, 1.0,
+    vec4 material = packMaterialData(0.82, 0.04, 1.0,
 #if defined(GBUFFERS_HAND) || defined(GBUFFERS_HAND_WATER)
         MATERIAL_ID_HAND
 #else
         MATERIAL_ID_DYNAMIC
 #endif
     );
-#if !defined(COLOR_ONLY) && !defined(PARTICLE)
+    material = withMaterialSkyLight(material, lmcoord.t);
+// Hands are intentionally Lightmap-only; sampling PBR here has no visible use.
+#if !defined(COLOR_ONLY) && !defined(PARTICLE) && !defined(GBUFFERS_HAND) && !defined(GBUFFERS_HAND_WATER)
     PbrMaterialSample pbr = samplePbrMaterial(texcoord.st, geometryNormal, viewPos, material);
     geometryNormal = pbr.normalView;
     material = pbr.materialData;
+#endif
+    // Keep normal derivatives valid for alpha-tested edge helper invocations.
+#if defined(IDA_MATERIALS_PBR_GLSL) && MATERIAL_MODE == 1
+    if (base.a <= 0.001) discard;
 #endif
 #if defined(GBUFFERS_HAND) || defined(GBUFFERS_HAND_WATER)
     albedo *= vanillaLight;
@@ -56,8 +66,10 @@ void main() {
     albedo *= vanillaLight;
 #else
     vec3 worldPos = viewToWorldPos(viewPos, gbufferModelViewInverse);
-    albedo = applySunDirectLight(albedo, geometryNormal, viewPos, material,
-             shadowMapping(worldPos, geometryNormal, 1.0), 1.0, vanillaLight);
+    float transmissionVisibility;
+    float visibility = shadowMapping(worldPos, geometryNormal, 1.0, transmissionVisibility);
+    albedo = applySunDirectLight(albedo, geometryNormal, viewPos, worldPos, material,
+             visibility, transmissionVisibility, 1.0, vanillaLight);
 #endif
     albedo = applyAtmosphere(albedo, viewPos, false);
 #else

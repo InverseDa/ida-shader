@@ -6,23 +6,17 @@
 // =====================================================================================
 #ifdef FRAGMENT_SHADER
 uniform sampler2D colortex6;
-uniform float viewWidth;
-uniform float viewHeight;
 
 in vec4 texcoord;
 
 /* DRAWBUFFERS:7 */
 void main() {
-    vec2 texel = 1.0 / vec2(textureSize(colortex6, 0));
-    vec2 uv = texcoord.st;
-
-    vec3 bloom = vec3(0.0);
-    bloom += sampleBloomBlur(colortex6, uv, texel, 1.25) * 0.38;
-    bloom += sampleBloomBlur(colortex6, uv, texel, 3.20) * 0.30;
-    bloom += sampleBloomBlur(colortex6, uv, texel, 7.25) * 0.23;
-    bloom += sampleBloomBlur(colortex6, uv, texel, 15.5) * 0.09;
-
-    gl_FragData[0] = vec4(clampBloomFireflies(bloom), 1.0);
+    if (BLOOM_STRENGTH <= 0.0) {
+        gl_FragData[0] = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+    }
+    // Positive normalized weights preserve the prefilter's finite HDR bound.
+    gl_FragData[0] = vec4(blurBloom(colortex6, texcoord.st), 1.0);
 }
 #endif
 

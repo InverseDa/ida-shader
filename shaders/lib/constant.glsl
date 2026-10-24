@@ -9,6 +9,10 @@
 // =========================== Constant ===========================
 const int noiseTextureResolution = 256;
 const int shadowMapResolution = 2048;   // 阴影分辨率 默认 1024
+// Compare each depth texel before interpolation: five hardware PCF queries,
+// using the existing opaque shadow map, with no extra shadow target/mip chain.
+const bool shadowHardwareFiltering1 = true;
+const bool shadowtex1Nearest = false;
 const float	sunPathRotation	= 0.0;      // 太阳偏移角 默认 0
 const int RGB16F = 0;
 const int colortex0Format = RGB16F;
@@ -45,7 +49,7 @@ const vec4 colortex10ClearColor = vec4(0.0, 0.0, 0.0, 0.0);
 const bool colortex8Clear = false;
 // Iris 1.8.x directive parsing requires four explicit components.
 const vec4 colortex8ClearColor = vec4(0.0, 0.0, 0.0, 0.0);
-const vec4 colortex5ClearColor = vec4(0.82, 0.02, 1.0, 0.0);
+const vec4 colortex5ClearColor = vec4(0.82, 0.04, 1.0, 0.0);
 // =========================== other values ===========================
 vec3 skyColorArr[] = vec3[24](vec3(0.46, 0.63, 0.78), // 0-1000
                               vec3(0.46, 0.63, 0.78), // 1000 - 2000

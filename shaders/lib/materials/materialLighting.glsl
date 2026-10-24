@@ -8,6 +8,7 @@ struct MaterialLightingProfile {
     float directScale;
     float ambientScale;
     float emissionStrength;
+    float transmissionScale;
 };
 
 MaterialLightingProfile getMaterialLightingProfile(vec4 materialData) {
@@ -16,6 +17,7 @@ MaterialLightingProfile getMaterialLightingProfile(vec4 materialData) {
     profile.directScale = 1.0;
     profile.ambientScale = 1.0;
     profile.emissionStrength = 0.0;
+    profile.transmissionScale = 0.0;
 
     if (isMaterial(materialData, MATERIAL_ID_SKY)) {
         profile.shadowLift = 1.0;
@@ -31,10 +33,13 @@ MaterialLightingProfile getMaterialLightingProfile(vec4 materialData) {
         return profile;
     }
 
-    if (isMaterial(materialData, MATERIAL_ID_FOLIAGE)) {
-        profile.shadowLift = 0.62;
+    if (isVegetationMaterial(materialData)) {
+        // Replace the old unconditional 26% ambient boost with a directional
+        // thin-surface term. New leaves/plants retain their static TAA path.
+        profile.shadowLift = 0.24;
         profile.directScale = 0.82;
-        profile.ambientScale = 1.26;
+        profile.ambientScale = 1.0;
+        profile.transmissionScale = isMaterial(materialData, MATERIAL_ID_LEAVES) ? 0.55 : 0.8;
         return profile;
     }
 

@@ -3,6 +3,7 @@
 
 #include "/lib/common/packing.glsl"
 #include "/lib/common/space.glsl"
+#include "/lib/reflections/confidence.glsl"
 
 struct WaterPlaneData {
     vec3 pointWorld;
@@ -29,7 +30,6 @@ struct PlanarProjectionData {
 
 struct PlanarSamplingConfig {
     int stepCount;
-    float edgeFadeWeight;
     float distanceFadeMin;
     float distanceFadeMax;
 };
@@ -42,9 +42,9 @@ struct PlanarSolveResult {
 };
 
 struct PlanarReflectionCandidate {
-    vec3 color;
-    float mask;
     vec2 uv;
+    float quality;
+    float edgeConfidence;
 };
 
 struct PlanarReprojectedSample {
@@ -57,6 +57,7 @@ struct PlanarReprojectedSample {
     float rayAlignment;
     float normalAlignment;
     float abovePlaneMask;
+    float edgeConfidence;
     bool valid;
 };
 
@@ -72,14 +73,18 @@ vec3 getPlanarFallbackAxis(vec3 normalWorld) {
     return normalize(fallbackAxis);
 }
 
-vec3 samplePlanarReflectionColor(vec2 uv) {
+vec3 samplePlanarReflectionColor(vec2 uv, float contribution) {
     vec2 texel = vec2(1.0 / viewWidth, 1.0 / viewHeight);
-    vec3 color = texture2D(colortex9, uv).rgb * 0.48;
-    color += texture2D(colortex9, uv + vec2(texel.x, 0.0)).rgb * 0.13;
-    color += texture2D(colortex9, uv - vec2(texel.x, 0.0)).rgb * 0.13;
-    color += texture2D(colortex9, uv + vec2(0.0, texel.y)).rgb * 0.13;
-    color += texture2D(colortex9, uv - vec2(0.0, texel.y)).rgb * 0.13;
-    return color;
+    vec2 centerUv = clamp(uv, texel * 1.5, vec2(1.0) - texel * 1.5);
+    // Explicit LOD: this helper runs inside divergent candidate branches.
+    vec3 center = textureLod(colortex9, centerUv, 0.0).rgb;
+    float filterAmount = reflectionFilterAmount(contribution);
+    if (filterAmount <= 0.0) return center;
+    vec3 neighbors = textureLod(colortex9, centerUv + vec2(texel.x, 0.0), 0.0).rgb;
+    neighbors += textureLod(colortex9, centerUv - vec2(texel.x, 0.0), 0.0).rgb;
+    neighbors += textureLod(colortex9, centerUv + vec2(0.0, texel.y), 0.0).rgb;
+    neighbors += textureLod(colortex9, centerUv - vec2(0.0, texel.y), 0.0).rgb;
+    return mix(center, center * 0.48 + neighbors * 0.13, filterAmount);
 }
 
 vec3 reflectPointAcrossPlane(vec3 point, vec3 planePoint, vec3 planeNormal) {
@@ -163,7 +168,6 @@ PlanarProjectionData buildPlanarProjectionData(
 PlanarSamplingConfig buildPlanarSamplingConfig(WaterPlaneData plane, PlanarIntersectionData intersection) {
     PlanarSamplingConfig sampling;
     sampling.stepCount = 14;
-    sampling.edgeFadeWeight = mix(0.92, 1.22, plane.planarWeight);
     sampling.distanceFadeMin = mix(42.0, 70.0, intersection.incidentAlignment);
     sampling.distanceFadeMax = mix(150.0, 230.0, plane.planarWeight);
     return sampling;
@@ -183,11 +187,11 @@ PlanarSolveResult solvePlanarReflection(
     return result;
 }
 
-PlanarReflectionCandidate createPlanarReflectionCandidate(vec3 color, float mask, vec2 uv) {
+PlanarReflectionCandidate createPlanarReflectionCandidate(vec2 uv, float quality, float edgeConfidence) {
     PlanarReflectionCandidate candidate;
-    candidate.color = color;
-    candidate.mask = mask;
     candidate.uv = uv;
+    candidate.quality = quality;
+    candidate.edgeConfidence = edgeConfidence;
     return candidate;
 }
 
@@ -202,6 +206,7 @@ PlanarReprojectedSample createInvalidPlanarReprojectedSample(vec2 uv) {
     sample.rayAlignment = 0.0;
     sample.normalAlignment = 0.0;
     sample.abovePlaneMask = 0.0;
+    sample.edgeConfidence = 0.0;
     sample.valid = false;
     return sample;
 }
@@ -214,10 +219,14 @@ PlanarReprojectedSample buildPlanarReprojectedSample(
     PlanarReprojectedSample sample;
     vec3 candidateViewPos = worldToViewPos(candidateWorldPos, gbufferModelView);
     vec2 uv;
+    vec2 unjitteredUv;
     vec4 opaque;
-    if (!projectAndSampleOpaque(candidateViewPos, uv, opaque)) {
+    if (!projectAndSampleOpaque(candidateViewPos, uv, opaque, unjitteredUv)) {
         return createInvalidPlanarReprojectedSample(uv);
     }
+
+    float edgeConfidence = reflectionEdgeConfidence(unjitteredUv);
+    if (edgeConfidence <= 0.0) return createInvalidPlanarReprojectedSample(uv);
 
     float sceneDepth = opaque.b;
     if (sceneDepth >= 0.999999) {
@@ -248,6 +257,7 @@ PlanarReprojectedSample buildPlanarReprojectedSample(
     sample.rayAlignment = rayAlignment;
     sample.normalAlignment = clamp(dot(sceneNormalWorld, plane.normalWorld), 0.0, 1.0);
     sample.abovePlaneMask = smoothstep(-0.2, 1.2, sceneHeightAbovePlane);
+    sample.edgeConfidence = edgeConfidence;
     sample.valid = true;
     return sample;
 }
@@ -257,42 +267,29 @@ PlanarReflectionCandidate evaluatePlanarReprojectedSample(
     PlanarIntersectionData intersection,
     PlanarSamplingConfig sampling,
     PlanarReprojectedSample sample,
-    float travelDistance,
-    vec3 fallbackColor
+    float travelDistance
 ) {
     if (!sample.valid) {
-        return createPlanarReflectionCandidate(fallbackColor, 0.0, sample.uv);
+        return createPlanarReflectionCandidate(sample.uv, 0.0, 0.0);
     }
 
     float reprojectionMask = 1.0 - smoothstep(1.4, 13.0, sample.reprojectionError);
     float depthMask = 1.0 - smoothstep(0.90, 9.5, sample.depthError);
     float distanceFade = 1.0 - smoothstep(sampling.distanceFadeMin, sampling.distanceFadeMax, travelDistance);
-    float edgeFade = getScreenEdgeFade(sample.uv) * sampling.edgeFadeWeight;
     float rayMask = smoothstep(0.62, 0.94, sample.rayAlignment);
     float normalMask = mix(1.0, smoothstep(0.08, 0.55, sample.normalAlignment), plane.planarWeight * 0.6);
     float grazingBoost = clamp(mix(0.75, 1.10, intersection.incidentAlignment), 0.0, 1.0);
     float stabilityMask = smoothstep(0.18, 0.72, reprojectionMask * depthMask);
-    float mask = plane.planarWeight * sample.abovePlaneMask * stabilityMask *
-                 depthMask * distanceFade * edgeFade * rayMask * normalMask *
-                 mix(0.68, 1.04, grazingBoost);
-    // Only read color after the final score (including the side weight) passes.
-    if (mask <= 0.0001) return createPlanarReflectionCandidate(fallbackColor, 0.0, sample.uv);
-    return createPlanarReflectionCandidate(fallbackColor, mask, sample.uv);
-}
-
-float scorePlanarReflectionCandidate(
-    PlanarReflectionCandidate candidate,
-    PlanarSamplingConfig sampling
-) {
-    float edgeFade = getScreenEdgeFade(candidate.uv) * sampling.edgeFadeWeight;
-    return candidate.mask * edgeFade;
+    float quality = plane.planarWeight * sample.abovePlaneMask * stabilityMask *
+                    depthMask * distanceFade * rayMask * normalMask *
+                    mix(0.68, 1.04, grazingBoost);
+    return createPlanarReflectionCandidate(sample.uv, clamp(quality, 0.0, 1.0), sample.edgeConfidence);
 }
 
 PlanarReflectionCandidate samplePlanarReflectionAtPosition(
     PlanarSolveResult solveResult,
     vec3 candidateWorldPos,
-    float travelDistance,
-    vec3 fallbackColor
+    float travelDistance
 ) {
     PlanarReprojectedSample sample = buildPlanarReprojectedSample(
         solveResult.plane,
@@ -304,20 +301,38 @@ PlanarReflectionCandidate samplePlanarReflectionAtPosition(
         solveResult.intersection,
         solveResult.sampling,
         sample,
-        travelDistance,
-        fallbackColor
+        travelDistance
     );
 }
 
-PlanarReflectionCandidate samplePlanarReflectionCandidate(
+void accumulatePlanarReflectionCandidate(
+    PlanarReflectionCandidate candidate,
+    float sideWeight,
+    float visibility,
+    float reflectivity,
+    inout vec3 accumulatedColor,
+    inout float accumulatedWeight,
+    inout float accumulatedConfidence
+) {
+    float score = candidate.quality * candidate.edgeConfidence * sideWeight;
+    float sampleWeight = reflectionCandidateWeight(score);
+    if (sampleWeight <= 0.0) return;
+    float confidence = reflectionCandidateConfidence(candidate.quality, candidate.edgeConfidence, visibility);
+    vec3 color = samplePlanarReflectionColor(candidate.uv, confidence * reflectivity);
+    accumulatedColor += color * sampleWeight;
+    accumulatedWeight += sampleWeight;
+    accumulatedConfidence += confidence * sampleWeight;
+}
+
+ReflectionResult samplePlanarReflectionCandidate(
     PlanarSolveResult solveResult,
+    float visibility,
+    float reflectivity,
     vec3 fallbackColor
 ) {
-    PlanarReflectionCandidate bestCandidate = createPlanarReflectionCandidate(fallbackColor, 0.0, vec2(0.0));
-    float bestScore = 0.0;
     vec3 accumulatedColor = vec3(0.0);
     float accumulatedWeight = 0.0;
-    float accumulatedMask = 0.0;
+    float accumulatedConfidence = 0.0;
 
     for (int i = 0; i < solveResult.sampling.stepCount; i++) {
         float t = (float(i) + 0.5) / float(solveResult.sampling.stepCount);
@@ -327,21 +342,10 @@ PlanarReflectionCandidate samplePlanarReflectionCandidate(
         PlanarReflectionCandidate candidate = samplePlanarReflectionAtPosition(
             solveResult,
             candidateWorldPos,
-            travelDistance,
-            fallbackColor
+            travelDistance
         );
-        float score = scorePlanarReflectionCandidate(candidate, solveResult.sampling);
-        if (score > 0.0001) {
-            candidate.color = samplePlanarReflectionColor(candidate.uv);
-            float sampleWeight = score * score;
-            accumulatedColor += candidate.color * sampleWeight;
-            accumulatedWeight += sampleWeight;
-            accumulatedMask += candidate.mask * sampleWeight;
-        }
-        if (score > bestScore) {
-            bestCandidate = candidate;
-            bestScore = score;
-        }
+        accumulatePlanarReflectionCandidate(candidate, 1.0, visibility, reflectivity,
+            accumulatedColor, accumulatedWeight, accumulatedConfidence);
 
         if (i > 0 && i < solveResult.sampling.stepCount - 1) {
             float sideSign = (mod(float(i), 2.0) < 0.5) ? -1.0 : 1.0;
@@ -351,37 +355,17 @@ PlanarReflectionCandidate samplePlanarReflectionCandidate(
             PlanarReflectionCandidate sideCandidate = samplePlanarReflectionAtPosition(
                 solveResult,
                 sideCandidateWorldPos,
-                travelDistance,
-                fallbackColor
+                travelDistance
             );
-            float sideScore = scorePlanarReflectionCandidate(sideCandidate, solveResult.sampling) * 0.58;
-            if (sideScore > 0.0001) {
-                sideCandidate.color = samplePlanarReflectionColor(sideCandidate.uv);
-                float sideWeight = sideScore * sideScore;
-                accumulatedColor += sideCandidate.color * sideWeight;
-                accumulatedWeight += sideWeight;
-                accumulatedMask += sideCandidate.mask * sideWeight;
-            }
-            if (sideScore > bestScore) {
-                bestCandidate = sideCandidate;
-                bestScore = sideScore;
-            }
+            accumulatePlanarReflectionCandidate(sideCandidate, 0.58, visibility, reflectivity,
+                accumulatedColor, accumulatedWeight, accumulatedConfidence);
         }
     }
 
-    if (accumulatedWeight > 0.0001) {
-        vec3 resolvedColor = accumulatedColor / accumulatedWeight;
-        float resolvedMask = clamp(accumulatedMask / accumulatedWeight, 0.0, 1.0);
-
-        return createPlanarReflectionCandidate(resolvedColor, resolvedMask, bestCandidate.uv);
-    }
-
-    // A very small nonzero best score can still reach this fallback. Preserve
-    // its original color even when it was too small for weighted accumulation.
-    if (bestScore > 0.0 && bestScore <= 0.0001) {
-        bestCandidate.color = samplePlanarReflectionColor(bestCandidate.uv);
-    }
-    return bestCandidate;
+    if (accumulatedWeight <= 0.0) return createReflectionResult(fallbackColor, 0.0);
+    vec3 resolvedColor = accumulatedColor / max(accumulatedWeight, 1e-8);
+    float confidence = reflectionResolveConfidence(accumulatedConfidence, accumulatedWeight);
+    return createReflectionResult(resolvedColor, confidence);
 }
 
 PlanarSolveResult solvePlanarWaterReflection(

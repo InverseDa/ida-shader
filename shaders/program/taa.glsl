@@ -47,7 +47,7 @@ vec3 clampHistoryToNeighborhood(ivec2 pixel, vec3 center, vec3 historyColor) {
     for (int y = -1; y <= 1; y++) {
         for (int x = -1; x <= 1; x++) {
             if (x == 0 && y == 0) continue;
-            vec3 sampleColor = texelFetch(colortex0, clamp(pixel + ivec2(x, y), ivec2(0), size - 1), 0).rgb;
+            vec3 sampleColor = sanitizeRadiance(texelFetch(colortex0, clamp(pixel + ivec2(x, y), ivec2(0), size - 1), 0).rgb);
             minimumColor = min(minimumColor, sampleColor);
             maximumColor = max(maximumColor, sampleColor);
         }
@@ -61,7 +61,7 @@ vec3 clampHistoryToNeighborhood(ivec2 pixel, vec3 center, vec3 historyColor) {
 void main() {
     vec2 uv = texcoord.st;
     ivec2 pixel = ivec2(gl_FragCoord.xy);
-    vec3 currentColor = texelFetch(colortex0, pixel, 0).rgb;
+    vec3 currentColor = sanitizeRadiance(texelFetch(colortex0, pixel, 0).rgb);
     bool reactive = hasReactiveCoverage(pixel);
     vec4 opaque = vec4(0.0, 0.0, 1.0, 0.0);
     if (!reactive) opaque = fetchOpaqueData(pixel);
@@ -75,7 +75,8 @@ void main() {
     // Linear FP16 depth has <0.05% relative rounding error, below the 1%
     // history tolerance. Reject out-of-range depth instead of storing infinity.
     bool validSurface = stable && depth < 0.999999 && viewDepth > 0.0 && viewDepth <= 65504.0;
-    vec3 resolvedColor = reactive ? resolveSpatialAa(uv, currentColor) : currentColor;
+    vec3 resolvedColor = currentColor;
+    bool historyAccepted = false;
     if (frameCounter > 1 && validSurface && length(cameraPosition - previousCameraPosition) < 8.0) {
         float previousDepth;
         vec2 previousUv = getPreviousFrameUv(viewPos, previousDepth);
@@ -92,7 +93,7 @@ void main() {
                     float weight = (x == 0 ? 1.0 - fraction.x : fraction.x) *
                                    (y == 0 ? 1.0 - fraction.y : fraction.y);
                     bool sameMedium = isEyeInWater == 1 ? tap.a < 0.0 : tap.a > 0.0;
-                    if (sameMedium && abs(abs(tap.a) - previousDepth) < max(0.05, previousDepth * 0.01)) {
+                    if (isFiniteRadiance(tap.rgb) && sameMedium && abs(abs(tap.a) - previousDepth) < max(0.05, previousDepth * 0.01)) {
                         historyColor += tap.rgb * weight;
                         validWeight += weight;
                     }
@@ -103,13 +104,21 @@ void main() {
                 // Bound history using the unfiltered current frame. Dynamic
                 // pixels use spatial AA independently and never accumulate it.
                 historyColor = clampHistoryToNeighborhood(pixel, currentColor, historyColor);
-                float motion = length(previousUv - uv) * max(viewWidth, viewHeight);
+                // Jitter is a sampling offset, not camera motion. Measure
+                // actual displacement in pixels on each axis (including wide screens).
+                vec2 previousJitter = getTaaJitterNdc(frameCounter - 1, vec2(viewWidth, viewHeight)) * 0.5;
+                float motion = length((previousUv - uv + jitter - previousJitter) * vec2(viewWidth, viewHeight));
                 float historyWeight = mix(0.88, 0.54, clamp(motion * 0.035, 0.0, 1.0));
-                resolvedColor = mix(currentColor, historyColor, historyWeight);
+                resolvedColor = mix(currentColor, historyColor, historyWeight * validWeight);
+                historyAccepted = true;
             }
         }
     }
 
+    // Newly revealed static terrain also needs a current-frame resolve while
+    // its depth-valid history is unavailable. Reactive pixels remain invalid
+    // in history, so this never accumulates moving geometry without vectors.
+    if (!historyAccepted) resolvedColor = resolveSpatialAa(uv, currentColor);
     resolvedColor = clamp(resolvedColor, vec3(0.0), vec3(65504.0));
     gl_FragData[0] = vec4(resolvedColor, 1.0);
     // Zero is invalid. The sign records camera medium, rejecting all history

@@ -6,6 +6,7 @@
 
 struct SmoothSurfaceReflectionProfile {
     float roughness;
+    float highlightVariance;
     float reflectivity;
     float reflectionVisibility;
     float planarVisibility;
@@ -29,6 +30,7 @@ SmoothSurfaceReflectionProfile createSmoothSurfaceReflectionProfile(
 ) {
     SmoothSurfaceReflectionProfile profile;
     profile.roughness = roughness;
+    profile.highlightVariance = 0.0;
     profile.reflectivity = reflectivity;
     profile.reflectionVisibility = reflectionVisibility;
     profile.planarVisibility = planarVisibility;
@@ -43,7 +45,7 @@ SmoothSurfaceReflectionProfile createSmoothSurfaceReflectionProfile(
 vec3 getSmoothSurfaceSkyReflection(vec3 reflectDir, SmoothSurfaceReflectionProfile profile) {
     vec3 viewDir = normalize(reflectDir);
     vec3 skyBase = getSkyBaseRadiance(viewDir);
-    vec3 skyDisk = getSkyDiskRadiance(viewDir) * profile.skyDiskStrength;
+    vec3 skyDisk = getFilteredSkyDiskRadiance(viewDir, profile.highlightVariance) * profile.skyDiskStrength;
     vec3 radiance = (skyBase + skyDisk) * profile.skyBrightness;
     float luminance = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
     radiance = mix(vec3(luminance), radiance, profile.reflectionSaturation);
@@ -59,12 +61,8 @@ vec3 resolveSmoothSurfaceColor(
     SmoothSurfaceReflectionProfile profile
 ) {
     vec3 fallbackColor = getSmoothSurfaceSkyReflection(reflectDir, profile);
-    ReflectionResult reflection = createReflectionResult(
-        fallbackColor,
-        0.0,
-        0.0,
-        0.0
-    );
+    ReflectionResult reflection = createReflectionResult(fallbackColor, 0.0);
+    float surfaceReflectivity = clamp(profile.reflectivity, 0.0, 1.0);
 
     if (profile.planarVisibility > 0.0001 && profile.reflectivity > 0.0 &&
         profile.reflectionVisibility > 0.0) {
@@ -73,17 +71,14 @@ vec3 resolveSmoothSurfaceColor(
             worldNormal,
             reflectDir,
             profile.roughness,
-            profile.planarVisibility,
+            profile.planarVisibility * profile.reflectionVisibility,
+            surfaceReflectivity,
             fallbackColor
         );
     }
 
     vec3 finalColor = fallbackColor;
-    float reflectionBlend = clamp(
-        pow(max(reflection.mask, reflection.confidence), 0.8) * profile.reflectionVisibility,
-        0.0,
-        1.0
-    );
+    float reflectionBlend = reflection.confidence;
     if (reflectionBlend > 0.0) {
         vec3 reflectedColor = reflection.color * profile.reflectionTint;
         float reflectedLuma = dot(reflectedColor, vec3(0.2126, 0.7152, 0.0722));
@@ -91,9 +86,10 @@ vec3 resolveSmoothSurfaceColor(
         finalColor = mix(finalColor, reflectedColor, reflectionBlend);
     }
 
-    float surfaceReflectivity = clamp(profile.reflectivity * mix(0.92, 1.08, reflectionBlend), 0.0, 1.0);
+    // Hit/miss confidence chooses scene versus sky, never the amount of base
+    // color replaced by reflection. Fresnel/transmission keep the same budget.
     finalColor = mix(baseColor, finalColor, surfaceReflectivity);
-    finalColor += getSkyDiskRadiance(normalize(reflectDir)) * profile.sunGlareStrength * profile.reflectionTint;
+    finalColor += getFilteredSkyDiskRadiance(normalize(reflectDir), profile.highlightVariance) * profile.sunGlareStrength * profile.reflectionTint;
     return finalColor;
 }
 

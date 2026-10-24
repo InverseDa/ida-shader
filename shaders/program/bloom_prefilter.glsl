@@ -6,23 +6,17 @@
 // =====================================================================================
 #ifdef FRAGMENT_SHADER
 uniform sampler2D colortex0;
-uniform float viewWidth;
-uniform float viewHeight;
 
 in vec4 texcoord;
 
 /* DRAWBUFFERS:6 */
 void main() {
-    vec2 texel = 1.0 / vec2(viewWidth, viewHeight);
-    vec2 uv = texcoord.st;
-
-    vec3 bloom = vec3(0.0);
-    bloom += sampleBloomTent(colortex0, uv, texel, 1.0) * 0.44;
-    bloom += sampleBloomTent(colortex0, uv, texel, 2.6) * 0.28;
-    bloom += sampleBloomTent(colortex0, uv, texel, 5.8) * 0.18;
-    bloom += sampleBloomTent(colortex0, uv, texel, 12.0) * 0.10;
-
-    gl_FragData[0] = vec4(bloom, 1.0);
+    // Compile-time setting: keep the target defined but skip all texture work.
+    if (BLOOM_STRENGTH <= 0.0) {
+        gl_FragData[0] = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+    }
+    gl_FragData[0] = vec4(prefilterBloom(colortex0, texcoord.st), 1.0);
 }
 #endif
 

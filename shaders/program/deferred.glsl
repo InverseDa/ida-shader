@@ -20,16 +20,17 @@ void main() {
     float depth = texture2D(depthtex0, uv).r;
     vec3 color = texture2D(colortex0, uv).rgb;
     vec3 normal = normalDecode(texture2D(colortex2, uv).rg);
-    vec4 material = texture2D(colortex5, uv);
+    vec4 material = fetchMaterialData(colortex5, uv);
     bool isHand = isMaterial(material, MATERIAL_ID_HAND);
     bool isSky = depth >= 0.999999;
     bool jittered = !isSky && materialUsesTaaJitter(material);
     vec3 viewPos = reconstructSurfaceViewPos(uv, depth, jittered);
     vec3 worldPos = viewToWorldPos(viewPos, gbufferModelViewInverse);
     if (!isSky && !isHand && !isMaterial(material, MATERIAL_ID_UNLIT)) {
-        float ao = getScreenSpaceAmbientOcclusion(uv, viewPos, normal);
-        float visibility = shadowMapping(worldPos, normal, 1.0);
-        color = applySunDirectLight(color, normal, viewPos, material, visibility, ao,
+        float ao = getScreenSpaceAmbientOcclusion(viewPos, normal, jittered);
+        float transmissionVisibility;
+        float visibility = shadowMapping(worldPos, normal, 1.0, transmissionVisibility);
+        color = applySunDirectLight(color, normal, viewPos, worldPos, material, visibility, transmissionVisibility, ao,
                                    texture2D(colortex9, uv).rgb);
     }
     if (isSky) color = getSkyRadiance(normalize(viewPos));

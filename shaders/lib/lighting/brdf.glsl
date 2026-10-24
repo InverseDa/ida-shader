@@ -7,7 +7,10 @@ float DistributionGGX(float NoH, float roughness) {
     float a = roughness * roughness;
     float a2 = a * a;
     float denom = NoH * NoH * (a2 - 1.0) + 1.0;
-    return a2 / max(PI * denom * denom, 0.0001);
+    // A large denominator epsilon made the sharpest lobes DARKER, so increasing
+    // roughness could create a bright flash. Protect division separately from
+    // a bounded HDR peak (the old curve's maximum was approximately 56).
+    return min(a2 / max(PI * denom * denom, 1e-12), 64.0);
 }
 
 float GeometrySchlickGGX(float NoV, float roughness) {
@@ -21,12 +24,18 @@ float GeometrySmith(float NoV, float NoL, float roughness) {
 }
 
 vec3 FresnelSchlick(float cosTheta, vec3 f0) {
-    return f0 + (1.0 - f0) * pow(1.0 - cosTheta, 5.0);
+    // Normalized dot products can round slightly above one. GLSL pow with a
+    // negative base is undefined, even for the nominal integer exponent 5.
+    float grazing = 1.0 - clamp(cosTheta, 0.0, 1.0);
+    float grazing2 = grazing * grazing;
+    return f0 + (1.0 - f0) * (grazing2 * grazing2 * grazing);
 }
 
 vec3 FresnelSchlickRoughness(float cosTheta, vec3 f0, float roughness) {
     vec3 oneMinusRoughness = vec3(1.0 - roughness);
-    return f0 + (max(oneMinusRoughness, f0) - f0) * pow(1.0 - cosTheta, 5.0);
+    float grazing = 1.0 - clamp(cosTheta, 0.0, 1.0);
+    float grazing2 = grazing * grazing;
+    return f0 + (max(oneMinusRoughness, f0) - f0) * (grazing2 * grazing2 * grazing);
 }
 
 vec3 EvaluateDirectionalBRDF(
@@ -36,15 +45,16 @@ vec3 EvaluateDirectionalBRDF(
     vec3 lightDir,
     vec3 radiance,
     float roughness,
-    float metallic
+    float metallic,
+    vec3 f0
 ) {
-    vec3 halfVector = normalize(viewDir + lightDir);
-    float NoV = max(dot(normal, viewDir), 0.0001);
-    float NoL = max(dot(normal, lightDir), 0.0);
-    float NoH = max(dot(normal, halfVector), 0.0);
-    float HoV = max(dot(halfVector, viewDir), 0.0);
+    vec3 halfSum = viewDir + lightDir;
+    vec3 halfVector = halfSum * inversesqrt(max(dot(halfSum, halfSum), 1e-8));
+    float NoV = clamp(dot(normal, viewDir), 0.0001, 1.0);
+    float NoL = clamp(dot(normal, lightDir), 0.0, 1.0);
+    float NoH = clamp(dot(normal, halfVector), 0.0, 1.0);
+    float HoV = clamp(dot(halfVector, viewDir), 0.0, 1.0);
 
-    vec3 f0 = mix(vec3(0.04), albedo, metallic);
     vec3 fresnel = FresnelSchlick(HoV, f0);
     float distribution = DistributionGGX(NoH, roughness);
     float geometry = GeometrySmith(NoV, NoL, roughness);

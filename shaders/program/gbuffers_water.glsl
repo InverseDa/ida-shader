@@ -15,6 +15,7 @@ in vec3 normal;
 in vec4 viewPos;
 #include "/lib/lighting/scene.glsl"
 #include "/lib/misc/atmosphere.glsl"
+#define IDA_WATER_SURFACE_PASS
 #include "/lib/materials/translucents/water.glsl"
 #include "/lib/materials/translucents/composition.glsl"
 
@@ -22,23 +23,29 @@ in vec4 viewPos;
 void main() {
     vec2 screenUv = gl_FragCoord.xy / vec2(viewWidth, viewHeight);
     vec4 base = texture2D(texture, texcoord.st) * color;
-    if (base.a <= 0.001) discard;
-    vec4 material = getTranslucentMaterialData(float(mat));
+    vec4 material = withMaterialSkyLight(getTranslucentMaterialData(float(mat)), lmcoord.t);
     vec3 surfaceNormal = safeNormal(normal);
     vec3 worldPos = viewToWorldPos(viewPos.xyz, gbufferModelViewInverse);
+    // Explicit gradients remain valid inside material / refraction branches.
+    vec2 dpdx = dFdx(worldPos.xz);
+    vec2 dpdy = dFdy(worldPos.xz);
+    float viewVariance = specularNormalVariance(safeNormal(viewPos.xyz));
     vec3 shaded;
     float alpha = base.a;
     if (isWaterEntityId(float(mat))) {
+        if (base.a <= 0.001) discard;
         float transmission;
         if (isEyeInWater == 1) {
-            shaded = drawUnderwaterSurface(worldPos, viewPos.xyz, surfaceNormal,
+            shaded = drawUnderwaterSurface(worldPos, viewPos.xyz, surfaceNormal, dpdx, dpdy,
                                           screenUv, gl_FragCoord.z, transmission);
         } else {
             vec2 opaqueUv = opaqueUvForUnjitteredUv(screenUv);
             vec4 opaque = sampleOpaqueData(opaqueUv);
             vec3 behind = reconstructOpaqueViewPos(opaqueUv, opaque);
-            shaded = drawWater(vec3(0.1, 0.2, 0.4), worldPos, viewPos.xyz, behind,
-                               surfaceNormal, screenUv, gl_FragCoord.z, transmission);
+            vec3 waterLight = srgbToLinear(texture2D(lightmap, lmcoord.st).rgb);
+            shaded = drawWater(color.rgb, worldPos, viewPos.xyz, behind,
+                               surfaceNormal, dpdx, dpdy, viewVariance, screenUv, gl_FragCoord.z,
+                               opaqueUv, opaque, lmcoord.st, waterLight, transmission);
         }
         shaded = applyAtmosphere(shaded, viewPos.xyz, false);
         // The modeled ray includes the opaque background. Factor it out before
@@ -48,11 +55,14 @@ void main() {
         alpha = layer.a;
     } else {
         PbrMaterialSample pbr = samplePbrMaterial(texcoord.st, surfaceNormal, viewPos.xyz, material);
-        shaded = applySunDirectLight(srgbToLinear(base.rgb), pbr.normalView, viewPos.xyz,
-                 pbr.materialData, shadowMapping(worldPos, pbr.normalView, 1.0), 1.0,
+        if (base.a <= 0.001) discard;
+        float transmissionVisibility;
+        float visibility = shadowMapping(worldPos, pbr.normalView, 1.0, transmissionVisibility);
+        shaded = applySunDirectLight(srgbToLinear(base.rgb), pbr.normalView, viewPos.xyz, worldPos,
+                 pbr.materialData, visibility, transmissionVisibility, 1.0,
                  srgbToLinear(texture2D(lightmap, lmcoord.st).rgb));
         if (isEyeInWater != 1 && isIceEntityId(float(mat)))
-            shaded = drawIce(shaded, worldPos, viewPos.xyz, pbr.normalView);
+            shaded = drawIce(shaded, worldPos, viewPos.xyz, pbr.normalView, pbr.normalVariance, viewVariance);
         shaded = applyAtmosphere(shaded, viewPos.xyz, false);
     }
     gl_FragData[0] = vec4(shaded, alpha);

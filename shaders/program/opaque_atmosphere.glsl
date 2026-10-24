@@ -10,20 +10,30 @@ in vec4 texcoord;
 #include "/lib/materials/lighting/sky.glsl"
 #include "/lib/misc/atmosphere.glsl"
 #include "/lib/materials/translucents/water.glsl"
+#include "/lib/materials/puddles.glsl"
 /* RENDERTARGETS: 0,11 */
 void main() {
     vec2 uv = texcoord.st;
     vec4 snapshot = fetchOpaqueData(ivec2(gl_FragCoord.xy));
-    vec4 material = texture2D(colortex5, uv);
+    vec4 material = fetchMaterialData(colortex5, uv);
     vec3 color = texture2D(colortex9, uv).rgb;
     bool isHand = isMaterial(material, MATERIAL_ID_HAND);
     bool isSky = snapshot.b >= 0.999999;
     vec3 viewPos = reconstructOpaqueViewPos(uv, snapshot);
+    // These derivatives must run before the per-pixel ice branch.
+    vec3 surfaceNormal = normalDecode(snapshot.rg);
+    float normalVariance = specularNormalVariance(surfaceNormal);
+    float viewVariance = specularNormalVariance(safeNormal(viewPos));
+#if SURFACE_WETNESS == 1 && PUDDLE_REFLECTIONS == 1
+    if (!isSky && isEyeInWater == 0) {
+        color = drawPuddleReflection(color, viewPos, material, viewVariance);
+    }
+#endif
     // Opaque packed/blue ice must be resolved before translucent geometry.
     // The air-side sky-reflection approximation is not valid for submerged ice.
     if (!isSky && isEyeInWater != 1 && isMaterial(material, MATERIAL_ID_ICE)) {
         color = drawIce(color, viewToWorldPos(viewPos, gbufferModelViewInverse),
-                        viewPos, normalDecode(snapshot.rg));
+                        viewPos, surfaceNormal, normalVariance, viewVariance);
     }
     if (!isHand) color = applyAtmosphere(color, viewPos, isSky);
     // Keep the water-composition baseline free of early effects. Their visible

@@ -20,11 +20,13 @@ vec4 sampleOpaqueData(vec2 uv) {
 }
 // Reflection probes need both the projected UV and snapshot. Reuse the first
 // fetch when jitter does not cross a texel boundary; keep the second otherwise.
-bool projectAndSampleOpaque(vec3 p, out vec2 uv, out vec4 opaque) {
+bool projectAndSampleOpaque(vec3 p, out vec2 uv, out vec4 opaque, out vec2 unjitteredUv) {
     uv = vec2(-1.0);
+    unjitteredUv = uv;
     opaque = vec4(0.0, 0.0, 1.0, 0.0);
     if (p.z >= -near) return false;
     uv = projectViewToScreenPos(p, gbufferProjection).xy;
+    unjitteredUv = uv;
     vec2 jitter = currentJitterUv();
     // Preserve probes just outside the image that jitter can move inside.
     if (any(lessThanEqual(uv, -abs(jitter))) ||
@@ -37,6 +39,10 @@ bool projectAndSampleOpaque(vec3 p, out vec2 uv, out vec4 opaque) {
     ivec2 shiftedPixel = clamp(ivec2(uv * vec2(size)), ivec2(0), size - 1);
     if (any(notEqual(pixel, shiftedPixel))) opaque = fetchOpaqueData(shiftedPixel);
     return true;
+}
+bool projectAndSampleOpaque(vec3 p, out vec2 uv, out vec4 opaque) {
+    vec2 unjitteredUv;
+    return projectAndSampleOpaque(p, uv, opaque, unjitteredUv);
 }
 vec2 opaqueUvForUnjitteredUv(vec2 uv) {
     vec2 halfTexel = 0.5 / vec2(textureSize(colortex4, 0));

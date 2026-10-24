@@ -3,39 +3,20 @@
 
 #include "/lib/reflections/planar.glsl"
 
-struct ReflectionResult {
-    vec3 color;
-    float mask;
-    float planarWeight;
-    float confidence;
-};
-
-ReflectionResult createReflectionResult(
-    vec3 color,
-    float mask,
-    float planarWeight,
-    float confidence
-) {
-    ReflectionResult result;
-    result.color = color;
-    result.mask = mask;
-    result.planarWeight = planarWeight;
-    result.confidence = confidence;
-    return result;
-}
-
-ReflectionResult tracePlanarReflection(
+ReflectionResult resolveScreenPlanarReflection(
     vec3 worldPos,
     vec3 worldNormal,
     vec3 reflectDir,
     float roughness,
+    float visibility,
+    float reflectivity,
     vec3 fallbackColor
 ) {
     WaterPlaneData plane = buildWaterPlaneData(worldPos, worldNormal, roughness);
     // Vertical/rough surfaces have an exactly zero planar mask. Their sky
     // fallback remains unchanged, without a 26-candidate screen search.
     if (plane.planarWeight <= 0.0) {
-        return createReflectionResult(fallbackColor, 0.0, 0.0, 0.0);
+        return createReflectionResult(fallbackColor, 0.0);
     }
     vec3 reflectDirWorld = viewToWorldNormal(normalize(reflectDir), gbufferModelViewInverse);
     PlanarSolveResult planarSolve = solvePlanarReflection(
@@ -44,53 +25,11 @@ ReflectionResult tracePlanarReflection(
         reflectDirWorld,
         roughness
     );
-    PlanarReflectionCandidate candidate = samplePlanarReflectionCandidate(
+    return samplePlanarReflectionCandidate(
         planarSolve,
+        visibility,
+        reflectivity,
         fallbackColor
-    );
-
-    return createReflectionResult(
-        candidate.color,
-        candidate.mask,
-        planarSolve.plane.planarWeight,
-        candidate.mask
-    );
-}
-
-ReflectionResult resolveScreenPlanarReflection(
-    vec3 worldPos,
-    vec3 worldNormal,
-    vec3 reflectDir,
-    float roughness,
-    float planarVisibility,
-    vec3 fallbackColor
-) {
-    ReflectionResult planarResult = tracePlanarReflection(
-        worldPos,
-        worldNormal,
-        normalize(reflectDir),
-        roughness,
-        fallbackColor
-    );
-
-    planarResult.mask *= planarVisibility;
-    planarResult.confidence *= planarVisibility;
-    float planarConfidence = planarResult.mask * mix(0.82, 1.18, planarResult.planarWeight);
-
-    if (planarConfidence > 0.0) {
-        return createReflectionResult(
-            planarResult.color,
-            planarResult.mask,
-            planarResult.planarWeight,
-            planarConfidence
-        );
-    }
-
-    return createReflectionResult(
-        planarResult.color,
-        planarResult.mask,
-        planarResult.planarWeight,
-        planarResult.confidence
     );
 }
 
