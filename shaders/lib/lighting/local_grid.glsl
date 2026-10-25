@@ -1,7 +1,7 @@
 #ifndef IDA_LOCAL_GRID_GLSL
 #define IDA_LOCAL_GRID_GLSL
 #include "/lib/settings.glsl"
-#if PLACED_LIGHTS == 1
+#if PLACED_LIGHTS == 1 || (VOXEL_GI == 1 || VOXEL_REFLECTIONS == 1) || WATER_CAUSTICS == 1 || UNDERWATER_LIGHT == 1
 // Fixed world-space storage: 64^3 block records, 4^3 occupancy bits/block,
 // and eight deterministic candidates per 4-block cluster. No 5K-sized target.
 layout(std430, binding = 0) buffer LocalSourceBuffer {
@@ -11,6 +11,7 @@ layout(std430, binding = 0) buffer LocalSourceBuffer {
 layout(std430, binding = 1) buffer LocalOccluderBuffer {
     uvec2 LocalOccluders[262144];
     uint LocalOccluderCoarse[4096];
+    uint LocalWaterSurface[4096];
 };
 layout(std430, binding = 2) buffer LocalClusterBuffer {
     uint LocalCandidates[32768];

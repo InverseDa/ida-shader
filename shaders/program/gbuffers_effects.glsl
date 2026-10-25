@@ -19,7 +19,11 @@ in vec3 ViewPos;
 #include "/lib/misc/atmosphere.glsl"
 
 // colortex1 is WRITE-ONLY in gbuffers; Iris aliases its sampler to the atlas.
+#if SSR_HALF_RES == 1 && SSR_TEMPORAL == 1
+/* RENDERTARGETS: 0,1,10,3,15 */
+#else
 /* RENDERTARGETS: 0,1,10,3 */
+#endif
 void main() {
 #ifdef EFFECT_UNTEXTURED
     vec4 Base = Color;
@@ -56,9 +60,12 @@ void main() {
     gl_FragData[1] = AfterDeferred ? vec4(0.0) : Layer;
     gl_FragData[2] = vec4(max(Coverage, 1.0 / 255.0));
     // FP16 view depth keeps useful precision without allocating another buffer.
-    // Late effects conservatively invalidate covered reflection metadata;
-    // early effects keep their original depth in R for deferred1.
-    gl_FragData[3] = vec4(clamp(-ViewPos.z, 0.0, 65504.0), 0.0, 0.0, 0.0);
+    // Alpha zero preserves late reflection metadata with the attachment's
+    // separate blend rule. Early effects write their depth for deferred1.
+    gl_FragData[3] = vec4(clamp(-ViewPos.z, 0.0, 65504.0), 0.0, 0.0, AfterDeferred ? 0.0 : 1.0);
+#if SSR_HALF_RES == 1 && SSR_TEMPORAL == 1
+    gl_FragData[4] = vec4(0.0,0.0,0.0,AfterDeferred ? Layer.a : 0.0);
+#endif
 }
 
 #endif // FRAGMENT_SHADER

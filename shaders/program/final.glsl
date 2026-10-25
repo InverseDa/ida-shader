@@ -14,8 +14,16 @@ uniform sampler2D colortex7; // bloom
 in vec4 Texcoord;
 
 vec3 Saturation(vec3 Color, float Factor) {
+    Color = clamp(Color, 0.0, 1.0);
     float Brightness = dot(Color, vec3(0.2125, 0.7154, 0.0721));
-    return mix(vec3(Brightness), Color, Factor);
+    vec3 Chroma = Color - vec3(Brightness);
+    // Bound chroma along its original direction instead of clipping channels
+    // independently. Bright red/cyan blocks keep their hue and luminance.
+    float Peak = max(Chroma.r, max(Chroma.g, Chroma.b));
+    float Trough = min(Chroma.r, min(Chroma.g, Chroma.b));
+    float GamutLimit = min((1.0 - Brightness) / max(Peak, 0.00001),
+                          Brightness / max(-Trough, 0.00001));
+    return vec3(Brightness) + Chroma * min(max(Factor, 0.0), max(GamutLimit, 1.0));
 }
 
 vec3 Contrast(vec3 Color, float Factor) {

@@ -26,6 +26,7 @@ uniform int isEyeInWater;
 #include "/lib/common/opaque_snapshot.glsl"
 #include "/lib/post/spatial_aa.glsl"
 #include "/lib/post/reactive.glsl"
+#include "/lib/post/water_temporal.glsl"
 
 in vec4 Texcoord;
 
@@ -64,11 +65,14 @@ void main() {
     ivec2 Pixel = ivec2(gl_FragCoord.xy);
     vec3 CurrentColor = SanitizeRadiance(texelFetch(colortex0, Pixel, 0).rgb);
     bool Reactive = HasReactiveCoverage(Pixel);
+    vec3 WaterView,WaterNormal;float WaterTravel;
+    bool Water=Reactive && WaterTemporalSurface(Pixel,WaterView,WaterNormal,WaterTravel);
     vec4 Opaque = vec4(0.0, 0.0, 1.0, 0.0);
     if (!Reactive) Opaque = FetchOpaqueData(Pixel);
     float Depth = Opaque.b;
     // Fuse mask dilation, spatial AA and temporal resolve in one full-screen
-    // pass. Reactive pixels never read history or reconstruct opaque depth.
+    // pass. Dynamic overlays reject history; verified water has its own
+    // reflection-aware reprojection and history type below.
     bool Stable = Opaque.a > 1.5 && !Reactive;
     vec2 Jitter = GetTaaJitterNdc(frameCounter, vec2(viewWidth, viewHeight)) * 0.5;
     vec3 ViewPos = Stable ? ReconstructViewPos(Uv - Jitter, Depth, gbufferProjectionInverse) : vec3(0.0);
@@ -78,6 +82,33 @@ void main() {
     bool ValidSurface = Stable && Depth < 0.999999 && ViewDepth > 0.0 && ViewDepth <= 65504.0;
     vec3 ResolvedColor = CurrentColor;
     bool HistoryAccepted = false;
+    if(Water && frameCounter>1 && length(cameraPosition-previousCameraPosition)<8.0) {
+        float Agreement;
+        vec2 PreviousUv=WaterPreviousUv(Uv,WaterView,WaterNormal,WaterTravel,Agreement);
+        if(Agreement>0.5 && IsScreenUvInRange(PreviousUv)) {
+            ivec2 Size=textureSize(colortex8,0);vec2 P=PreviousUv*vec2(Size)-0.5,F=fract(P);ivec2 Base=ivec2(floor(P));
+            vec3 History=vec3(0.0);float Support=0.0;
+            // A bilinear tap has exactly this tag only when its entire
+            // footprint is water. Mixed shore/hand footprints validate taps
+            // separately; their opaque colours must never bleed into water.
+            vec4 Bilinear=texture2D(colortex8,PreviousUv);
+            if(Bilinear.a==WaterHistoryTag && IsFiniteRadiance(Bilinear.rgb)) {
+                History=Bilinear.rgb;Support=1.0;
+            } else for(int K=0;K<4;++K) {
+                ivec2 Tap=clamp(Base+ivec2(K%2,K/2),ivec2(0),Size-1);
+                vec4 Old=texelFetch(colortex8,Tap,0);
+                if(Old.a!=WaterHistoryTag || !IsFiniteRadiance(Old.rgb)) continue;
+                float W=(K%2==0 ? 1.0-F.x : F.x)*(K<2 ? 1.0-F.y : F.y);
+                History+=Old.rgb*W;Support+=W;
+            }
+            if(Support>0.5) {
+                History=ClampHistoryToNeighborhood(Pixel,CurrentColor,History/Support);
+                float Motion=length((PreviousUv-Uv)*vec2(viewWidth,viewHeight));
+                float Weight=mix(0.78,0.45,clamp(Motion*0.06,0.0,1.0))*Agreement*Support;
+                ResolvedColor=mix(CurrentColor,History,Weight);HistoryAccepted=true;
+            }
+        }
+    }
     if (frameCounter > 1 && ValidSurface && length(cameraPosition - previousCameraPosition) < 8.0) {
         float PreviousDepth;
         vec2 PreviousUv = GetPreviousFrameUv(ViewPos, PreviousDepth);
@@ -93,7 +124,7 @@ void main() {
                     vec4 Tap = texelFetch(colortex8, Pixel, 0);
                     float Weight = (X == 0 ? 1.0 - Fraction.x : Fraction.x) *
                                    (Y == 0 ? 1.0 - Fraction.y : Fraction.y);
-                    bool SameMedium = isEyeInWater == 1 ? Tap.a < 0.0 : Tap.a > 0.0;
+                    bool SameMedium = isEyeInWater == 1 ? Tap.a < 0.0 && Tap.a!=WaterHistoryTag : Tap.a > 0.0;
                     if (IsFiniteRadiance(Tap.rgb) && SameMedium && abs(abs(Tap.a) - PreviousDepth) < max(0.05, PreviousDepth * 0.01)) {
                         HistoryColor += Tap.rgb * Weight;
                         ValidWeight += Weight;
@@ -117,14 +148,14 @@ void main() {
     }
 
     // Newly revealed static terrain also needs a current-frame resolve while
-    // its depth-valid history is unavailable. Reactive pixels remain invalid
-    // in history, so this never accumulates moving geometry without vectors.
+    // its depth-valid history is unavailable. Other reactive surfaces remain
+    // invalid in history; only explicitly verified water uses the new path.
     if (!HistoryAccepted) ResolvedColor = ResolveSpatialAa(Uv, CurrentColor);
     ResolvedColor = clamp(ResolvedColor, vec3(0.0), vec3(65504.0));
     gl_FragData[0] = vec4(ResolvedColor, 1.0);
-    // Zero is invalid. The sign records camera medium, rejecting all history
-    // when crossing the water surface without an additional history buffer.
-    gl_FragData[1] = vec4(ResolvedColor, ValidSurface ? ViewDepth * (isEyeInWater == 1 ? -1.0 : 1.0) : 0.0);
+    // Zero is invalid; -65504 marks water. Other signs record opaque camera
+    // medium, so crossing the water surface cannot reuse a different type.
+    gl_FragData[1] = vec4(ResolvedColor, Water ? WaterHistoryTag : (ValidSurface ? ViewDepth * (isEyeInWater == 1 ? -1.0 : 1.0) : 0.0));
 }
 
 #endif // FRAGMENT_SHADER

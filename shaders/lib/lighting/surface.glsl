@@ -21,7 +21,12 @@ SurfaceLightingResult EvaluateSurfaceLighting(vec3 Albedo, vec3 Normal, vec3 Vie
     vec3 AmbientFresnel = FresnelSchlickRoughness(NoV, F0, Roughness);
     vec3 KS = AmbientFresnel;
     vec3 KD = (vec3(1.0) - KS) * (1.0 - Metallic);
-    vec3 AmbientDiffuse = SkyAmbientColor * Albedo * KD;
+    // Open-air daylight fill: lift material colour without increasing sky
+    // reflections or changing the night/rain baseline. SkyAmbientColor already
+    // carries sky visibility; AO below still keeps occluded cavities dark.
+    float ClearDay = (1.0 - smoothstep(0.0, 1.0, rainStrength)) *
+                     (1.0 - smoothstep(0.0, 1.0, NightValue));
+    vec3 AmbientDiffuse = SkyAmbientColor * Albedo * KD * mix(1.0, 1.25, ClearDay);
     vec3 AmbientSpecular = SkyReflection * AmbientFresnel * mix(0.82, 0.28, Roughness);
     vec3 AmbientLight = (AmbientDiffuse + AmbientSpecular) * 0.20 * Ao;
 
@@ -32,6 +37,20 @@ SurfaceLightingResult EvaluateSurfaceLighting(vec3 Albedo, vec3 Normal, vec3 Vie
     float DirectShadow = CombinedShadow;
     Result.Direct = EvaluateDirectionalBRDF(Albedo, SurfaceNormal, ViewDir, LightDir, LightRadiance, Roughness, Metallic, F0) *
                     DirectShadow * Profile.DirectScale;
+    // Recover the daytime leaf-face response (0.82 -> approximately 1.0)
+    // independently of thin-leaf transmission and local/block lights.
+    if (Profile.TransmissionScale > 0.0) {
+        Result.Direct *= mix(1.0, 1.22, ClearDay);
+        // A leaf cluster is not a solid planar wall. Wrap only diffuse sunlight
+        // around grazing faces, keeping the head-on response unchanged and
+        // leaving fully back-facing transmission to the thin-leaf lobe.
+        // Reuse actual visibility: opaque blockers still remove this light.
+        float LeafNoL = dot(SurfaceNormal, LightDir);
+        float LeafWrap = max((LeafNoL + 0.35) / 1.35, 0.0) - max(LeafNoL, 0.0);
+        vec3 LeafDiffuse = Albedo * (vec3(1.0) - F0) * (1.0 - Metallic) / PI;
+        Result.Direct += LeafDiffuse * LightRadiance * max(LeafWrap, 0.0) *
+                         DirectShadow * Profile.DirectScale * ClearDay;
+    }
     Result.Ambient = AmbientLight * Profile.AmbientScale * AmbientShadow;
     return Result;
 }

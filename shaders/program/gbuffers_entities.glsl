@@ -31,7 +31,11 @@ in vec3 ViewPos;
 #endif
 
 #if defined(FORWARD_TRANSLUCENT)
+#if SSR_HALF_RES == 1 && SSR_TEMPORAL == 1
+/* RENDERTARGETS: 0,10,15 */
+#else
 /* RENDERTARGETS: 0,10 */
+#endif
 #elif defined(GBUFFERS_HAND)
 /* RENDERTARGETS: 0,2,5,1 */
 #else
@@ -85,6 +89,9 @@ void main() {
     gl_FragData[0] = vec4(Albedo, Base.a);
 #if defined(FORWARD_TRANSLUCENT)
     gl_FragData[1] = vec4(max(Base.a, 1.0 / 255.0));
+#if SSR_HALF_RES == 1 && SSR_TEMPORAL == 1
+    gl_FragData[2] = vec4(0.0,0.0,0.0,Base.a);
+#endif
 #else
     gl_FragData[1] = vec4(NormalEncode(GeometryNormal), GeometryNormalOct);
     gl_FragData[2] = Material;

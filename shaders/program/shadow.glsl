@@ -36,27 +36,29 @@ uniform mat4 shadowModelView;
 uniform mat4 shadowModelViewInverse;
 attribute vec4 mc_Entity;
 attribute vec4 mc_midTexCoord;
-#if PLACED_LIGHTS == 1
+#if (PLACED_LIGHTS == 1 || (VOXEL_GI == 1 || VOXEL_REFLECTIONS == 1) || WATER_CAUSTICS == 1 || UNDERWATER_LIGHT == 1)
 attribute vec4 at_midBlock;
 out vec3 ShadowBlockCentre;
+out vec4 ShadowTint;
 flat out int ShadowBlockId;
 #endif
 #include "/lib/materials/methods/foliage.glsl"
 out vec4 ShadowTexcoord;
-#if SHADOW_CSM == 1 || PLACED_LIGHTS == 1
+#if SHADOW_CSM == 1 || (PLACED_LIGHTS == 1 || (VOXEL_GI == 1 || VOXEL_REFLECTIONS == 1) || WATER_CAUSTICS == 1 || UNDERWATER_LIGHT == 1)
 out vec3 ShadowWorld;
 #endif
 
 void main() {
     vec4 ShadowView = gl_ModelViewMatrix * gl_Vertex;
     vec3 RelativeWorld = (shadowModelViewInverse * ShadowView).xyz;
-#if PLACED_LIGHTS == 1
+#if (PLACED_LIGHTS == 1 || (VOXEL_GI == 1 || VOXEL_REFLECTIONS == 1) || WATER_CAUSTICS == 1 || UNDERWATER_LIGHT == 1)
     ShadowBlockCentre = RelativeWorld + at_midBlock.xyz / 64.0;
     ShadowBlockId = int(mc_Entity.x + 0.5);
+    ShadowTint = gl_Color;
 #endif
     RelativeWorld += FoliageOffset(RelativeWorld, mc_Entity.x, gl_MultiTexCoord0.st, mc_midTexCoord.st);
     gl_Position = gl_ProjectionMatrix * shadowModelView * vec4(RelativeWorld, 1.0);
-#if SHADOW_CSM == 1 || PLACED_LIGHTS == 1
+#if SHADOW_CSM == 1 || (PLACED_LIGHTS == 1 || (VOXEL_GI == 1 || VOXEL_REFLECTIONS == 1) || WATER_CAUSTICS == 1 || UNDERWATER_LIGHT == 1)
     ShadowWorld = RelativeWorld;
 #endif
 #if SHADOW_CSM == 0
@@ -72,7 +74,7 @@ layout(triangles) in;
 layout(triangle_strip, max_vertices = 12) out;
 in vec4 ShadowTexcoord[];
 out vec4 Texcoord;
-#if SHADOW_CSM == 1 || PLACED_LIGHTS == 1
+#if SHADOW_CSM == 1 || (PLACED_LIGHTS == 1 || (VOXEL_GI == 1 || VOXEL_REFLECTIONS == 1) || WATER_CAUSTICS == 1 || UNDERWATER_LIGHT == 1)
 in vec3 ShadowWorld[];
 uniform vec3 cameraPosition;
 #endif
@@ -84,7 +86,7 @@ uniform float far;
 #endif
 #include "/lib/lighting/local_voxelize.glsl"
 void main() {
-#if PLACED_LIGHTS == 1
+#if (PLACED_LIGHTS == 1 || (VOXEL_GI == 1 || VOXEL_REFLECTIONS == 1) || WATER_CAUSTICS == 1 || UNDERWATER_LIGHT == 1)
     CollectLocalGeometry();
 #endif
 #if SHADOW_CSM == 1

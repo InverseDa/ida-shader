@@ -6,17 +6,31 @@ uniform ivec2 eyeBrightnessSmooth;
 uniform vec3 fogColor;
 uniform float nightVision;
 
-// Extinction per block. Red light is absorbed faster than green and blue.
-const vec3 WaterExtinction = vec3(0.20, 0.070, 0.030);
+// Both surface transmission and scattering follow the interpolated biome tint.
+// Keep shallow water clear and avoid imposing blue absorption on green/brown biomes.
+vec3 WaterBiomeTint(vec3 BiomeColor) {
+    vec3 Biome=sqrt(SrgbToLinear(clamp(BiomeColor,0.0,1.0)));
+    float Luma=dot(Biome,vec3(0.2126,0.7152,0.0722));
+    return mix(vec3(Luma),Biome,0.70)*0.16;
+}
+vec3 WaterBiomeExtinction(vec3 BiomeColor) {
+    vec3 Biome=SrgbToLinear(clamp(BiomeColor,0.0,1.0));
+    float Peak=max(Biome.r,max(Biome.g,Biome.b));
+    return vec3(0.035)+0.065*(vec3(1.0)-Biome/max(Peak,0.001));
+}
+vec3 WaterBiomeTransmittance(float Distance, vec3 BiomeColor) {
+    return exp(-WaterBiomeExtinction(BiomeColor)*clamp(Distance,0.0,512.0));
+}
 vec3 WaterTransmittance(float Distance) {
-    return exp(-WaterExtinction * clamp(Distance, 0.0, 512.0));
+    // fogColor is an underwater biome color only while the camera is immersed.
+    // Air-side callers needing local water color pass vertex tint explicitly.
+    vec3 Extinction=vec3(0.065,0.055,0.045);
+    if (isEyeInWater==1) Extinction=WaterBiomeExtinction(fogColor);
+    return exp(-Extinction*clamp(Distance,0.0,512.0));
 }
 
 vec3 WaterScatterColor() {
-    vec3 Biome = SrgbToLinear(max(fogColor, vec3(0.0)));
-    float Peak = max(Biome.r, max(Biome.g, Biome.b));
-    vec3 Tint = vec3(0.025, 0.14, 0.20);
-    if (Peak > 0.0001) Tint = mix(Tint, Biome / Peak * 0.20, 0.55);
+    vec3 Tint = WaterBiomeTint(fogColor);
     vec2 Light = clamp(vec2(eyeBrightnessSmooth) / 240.0, vec2(0.0), vec2(1.0));
     float Night = clamp((float(worldTime) - 12000.0) / 1000.0, 0.0, 1.0) *
                   (1.0 - clamp((float(worldTime) - 23000.0) / 1000.0, 0.0, 1.0));

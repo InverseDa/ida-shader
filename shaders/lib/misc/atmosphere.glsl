@@ -127,6 +127,7 @@ float AirFogAmount(float Distance, float OriginHeight, vec3 RayDir, bool IsSkySu
 }
 
 #include "/lib/misc/godrays.glsl"
+#include "/lib/misc/water_lighting.glsl"
 
 vec3 ApplyAirSegment(vec3 Color, vec3 OriginWorld, vec3 RayDir, float Distance, bool IsSkySurface) {
     float MaxDistance = IsSkySurface ? CloudMaxDistance : max(Distance, 0.0);
@@ -152,7 +153,8 @@ vec3 ApplyAirSegment(vec3 Color, vec3 OriginWorld, vec3 RayDir, float Distance, 
 }
 
 vec3 ApplyAtmosphere(vec3 Color, vec3 ViewPos, bool IsSkySurface) {
-    if (isEyeInWater == 1) return ApplyUnderwaterMedium(Color, length(ViewPos));
+    if (isEyeInWater == 1) return ApplyUnderwaterMedium(Color, length(ViewPos)) +
+                                RenderUnderwaterLight(ViewToWorldPos(ViewPos,gbufferModelViewInverse));
     vec3 RayDir = SafeNormal(ViewToWorldNormal(SafeNormal(ViewPos), gbufferModelViewInverse));
     return ApplyAirSegment(Color, cameraPosition, RayDir, length(ViewPos), IsSkySurface);
 }

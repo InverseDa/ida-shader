@@ -2,11 +2,11 @@
 #include "/lib/lighting/local_grid.glsl"
 layout(local_size_x = 64) in;
 const ivec3 workGroups = ivec3(16, 16, 16);
-#if PLACED_LIGHTS == 1
+#if (PLACED_LIGHTS == 1 || (VOXEL_GI == 1 || VOXEL_REFLECTIONS == 1))
 shared uint Nearest[8];
 #endif
 void main() {
-#if PLACED_LIGHTS == 1
+#if (PLACED_LIGHTS == 1 || (VOXEL_GI == 1 || VOXEL_REFLECTIONS == 1))
     uint Lane = gl_LocalInvocationID.x;
     if (Lane < 8u) Nearest[Lane] = 0xffffffffu;
     barrier();

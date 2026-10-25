@@ -29,7 +29,7 @@ float SurfaceSunlightGain(float RainAmount, float NightAmount) {
     // changing moonlight, or doubling the existing water sparkle treatment.
     float ClearDay = (1.0 - smoothstep(0.0, 1.0, RainAmount)) *
                      (1.0 - smoothstep(0.0, 1.0, NightAmount));
-    return mix(1.0, 1.6, ClearDay);
+    return mix(1.0, 2.4, ClearDay);
 }
 
 float CloudWeatherContrast(float RainAmount, float NightAmount) {
@@ -47,7 +47,7 @@ float SurfaceAmbientShadowFloor(float RainAmount, float NightAmount) {
     // Only soften the extra shadow-map modulation of sky fill. SSAO/material
     // AO still occlude it; no new ambient light, Lightmap or emission boost.
     float DiffuseWeather = max(smoothstep(0.0, 1.0, RainAmount), smoothstep(0.0, 1.0, NightAmount));
-    return mix(0.85, 0.90, DiffuseWeather);
+    return mix(0.70, 0.90, DiffuseWeather);
 }
 
 #endif

@@ -53,6 +53,11 @@ void main() {
     if (!IsSky && isEyeInWater != 1 && IsMaterial(Material, MaterialIdIce)) {
         Color = DrawIce(Color, ViewToWorldPos(ViewPos, gbufferModelViewInverse), ViewPos, SurfaceNormal, NormalVariance, ViewVariance);
     }
+    if (!IsHand && !IsSky && isEyeInWater == 1) {
+        vec3 Relative = ViewToWorldPos(ViewPos,gbufferModelViewInverse);
+        vec2 Water = FindWaterSurface(Relative);
+        Color = ApplyWaterCaustics(Color,Relative,ViewToWorldNormal(NormalDecode(Snapshot.rg),gbufferModelViewInverse),Water.x,Water.y);
+    }
     if (!IsHand) Color = ApplyAtmosphere(Color, ViewPos, IsSky);
     // Keep the water-composition baseline free of early effects. Their visible
     // contribution then survives as a destination delta through refraction.
@@ -74,7 +79,7 @@ void main() {
     // Every pixel is overwritten before partial forward reflection draws.
     gl_FragData[2] = ReflectionColorWrite;
     gl_FragData[3] = ReflectionSurfaceWrite;
-    gl_FragData[4] = ReflectionHitWrite;
+    gl_FragData[4] = vec4(ReflectionHitWrite.r, 1.0, 0.0, 0.0);
 #endif
 }
 

@@ -3,6 +3,7 @@
 #include "/lib/common/packing.glsl"
 #include "/lib/post/screen.glsl"
 #include "/lib/reflections/confidence.glsl"
+#include "/lib/reflections/screen_tiles.glsl"
 
 struct ReflectionRayProbe {
     vec2 Uv;
@@ -58,7 +59,10 @@ float ReflectionHitConfidence(vec3 RayView, vec3 SceneView, vec3 SceneNormal, ve
     float DepthPrecision = 0.00000024 * SceneView.z * SceneView.z / max(near, 0.01);
     float PlaneTolerance = max(0.012 + Error * 0.0015, DepthPrecision);
     Agreement *= 1.0 - smoothstep(PlaneTolerance * 0.5, PlaneTolerance, PlaneError);
-    float AbovePlane = smoothstep(0.025, 0.12, dot(SceneView - SurfaceView, NormalView));
+    // Geometric validity is not alpha coverage. A tiny residual from an
+    // unrelated face must not stop the march with a nearly empty reflection.
+    Agreement=step(0.5,Agreement);
+    float AbovePlane = smoothstep(0.002, 0.02, dot(SceneView - SurfaceView, NormalView));
     return Agreement * AbovePlane * ReflectionEdgeConfidence(ScreenUv) *
            (1.0 - smoothstep(MaxDistance * (2.0 / 3.0), MaxDistance, Travel));
 }
@@ -80,6 +84,8 @@ ReflectionResult FilterReflectionHit(vec3 RayView, vec3 SurfaceView, vec3 Normal
     float Support = 0.0;
     vec3 ColorMinimum = vec3(65504.0);
     vec3 ColorMaximum = vec3(0.0);
+    vec4 BestPlane = vec4(0.0);
+    float BestWeight = 0.0;
     for (int I = 0; I < 4; ++I) {
         vec2 Offset = vec2(float(I % 2), float(I >= 2));
         vec2 Pixel = BasePixel + Offset;
@@ -95,6 +101,10 @@ ReflectionResult FilterReflectionHit(vec3 RayView, vec3 SurfaceView, vec3 Normal
         vec3 SceneNormal = NormalDecode(Snapshot.rg);
         Weight *= ReflectionHitConfidence(RayView, SceneView, SceneNormal, SurfaceView, NormalView, Hit.ScreenUv, Travel, MaxDistance);
         if (Weight <= 0.0) continue;
+        if (Weight > BestWeight) {
+            BestPlane = vec4(SceneNormal, dot(SceneNormal, SceneView));
+            BestWeight = Weight;
+        }
         vec3 TapColor = texelFetch(colortex9, ivec2(Pixel), 0).rgb;
         Sum += TapColor * Weight;
         ColorMinimum = min(ColorMinimum, TapColor);
@@ -106,14 +116,22 @@ ReflectionResult FilterReflectionHit(vec3 RayView, vec3 SurfaceView, vec3 Normal
     Result.HitDistance = Travel;
     Result.ColorMinimum = ColorMinimum;
     Result.ColorMaximum = ColorMaximum;
+    Result.Plane = BestPlane;
     return Result;
 }
 
-ReflectionResult TraceScreenReflection(vec3 SurfaceView, vec3 NormalView, vec3 Direction, float MaxDistance, int Steps, vec3 Sky) {
+ReflectionResult TraceScreenReflection(vec3 SurfaceView, vec3 NormalView, vec3 Direction, float MaxDistance, int Steps, vec3 Sky, float StopDistance) {
     ReflectionResult Miss = CreateReflectionResult(Sky, 0.0);
+    float TraceLimit = min(MaxDistance, StopDistance);
     vec3 Origin = SurfaceView + NormalView * 0.015;
     float PreviousTravel = 0.06;
     float Stride = 0.25;
+#if VOXEL_REFLECTIONS == 1
+    bool TilesReady=ReflectionTilesReady();
+    if (TilesReady && ReflectionTiles[4099]==0u) return Miss;
+    if (TilesReady) PreviousTravel=SkipEmptyReflectionTiles(Origin,Direction,PreviousTravel,TraceLimit);
+    if (PreviousTravel>=TraceLimit) return Miss;
+#endif
     ReflectionRayProbe Previous = ProbeReflectionRay(Origin + Direction * PreviousTravel);
     if (!Previous.OnScreen) return Miss;
     // A cutout canopy is not a continuous depth function. Bisection can lock
@@ -130,22 +148,35 @@ ReflectionResult TraceScreenReflection(vec3 SurfaceView, vec3 NormalView, vec3 D
     // No frame-varying offsets: a static surface has a static search pattern.
     for (int I = 0; I < 48; ++I) {
         if (I >= Steps || Probes >= Steps + 1) return Miss;
-        float Travel = min(PreviousTravel + Stride, MaxDistance);
+        float Travel = min(PreviousTravel + Stride, TraceLimit);
         ReflectionRayProbe Probe = ProbeReflectionRay(Origin + Direction * Travel);
         Probes += 1;
         // Even when this coarse endpoint leaves the viewport, a surface seen
         // at the previous endpoint can intersect the ray before the edge.
         float A = ReflectionPlaneTravel(Origin, Direction, Previous);
         float B = ReflectionPlaneTravel(Origin, Direction, Probe);
+        // A ray through an alpha hole still encountered a useful leaf plane.
+        // Keep geometry (not its colour) for neighbouring full-resolution rays.
+        // They must validate their own texels before displaying any reflection.
+        if (A > 0.06 && A < TraceLimit && (Miss.HitDistance <= 0.0 || A < Miss.HitDistance) &&
+            dot(Origin + Direction*A - SurfaceView, NormalView) > 0.025) {
+            Miss.HitDistance = A;
+            Miss.Plane = vec4(Previous.NormalView, dot(Previous.NormalView, Previous.SceneView));
+        }
+        if (B > 0.06 && B < TraceLimit && (Miss.HitDistance <= 0.0 || B < Miss.HitDistance) &&
+            dot(Origin + Direction*B - SurfaceView, NormalView) > 0.025) {
+            Miss.HitDistance = B;
+            Miss.Plane = vec4(Probe.NormalView, dot(Probe.NormalView, Probe.SceneView));
+        }
         // A leaf plane can be observed before its intersection distance, then
         // disappear into alpha holes in the next depth sample. Retain its
         // nearest future hint until the march reaches it; do not lose it just
         // because the current pixel sees the wall behind the canopy.
-        if (A > Travel && A < MaxDistance && A < PendingTravel) {
+        if (A > Travel && A < TraceLimit && A < PendingTravel) {
             PendingTravel = A;
             PendingNormal = Previous.NormalView;
         }
-        if (B > Travel && B < MaxDistance && B < PendingTravel) {
+        if (B > Travel && B < TraceLimit && B < PendingTravel) {
             PendingTravel = B;
             PendingNormal = Probe.NormalView;
         }
@@ -164,7 +195,7 @@ ReflectionResult TraceScreenReflection(vec3 SurfaceView, vec3 NormalView, vec3 D
             float Candidate = First;
             if (J == 1) Candidate = Second;
             if (J == 2) Candidate = Third;
-            if (Candidate < MaxDistance && abs(Candidate - LastChecked) > 0.02 && Probes < Steps + 1) {
+            if (Candidate < TraceLimit && abs(Candidate - LastChecked) > 0.02 && Probes < Steps + 1) {
                 vec3 CandidateNormal = Previous.NormalView;
                 if (Candidate == B) CandidateNormal = Probe.NormalView;
                 if (Candidate == C) CandidateNormal = PendingNormal;
@@ -181,7 +212,7 @@ ReflectionResult TraceScreenReflection(vec3 SurfaceView, vec3 NormalView, vec3 D
                         if (dot(CandidateNormal, Hit.NormalView) < 0.995) break;
                         float Corrected = ReflectionPlaneTravel(Origin, Direction, Hit);
                         float Correction = abs(Corrected - Candidate);
-                        if (Corrected < 0.06 || Corrected >= MaxDistance ||
+                        if (Corrected < 0.06 || Corrected >= TraceLimit ||
                             Correction > max(0.12, Candidate * 0.002) ||
                             Correction < max(0.001, Candidate * 0.00001)) break;
                         Candidate = Corrected;
@@ -199,7 +230,7 @@ ReflectionResult TraceScreenReflection(vec3 SurfaceView, vec3 NormalView, vec3 D
                 // hint, not the entire ray. Later hits must pass the same test.
             }
         }
-        if (!Probe.OnScreen || Travel >= MaxDistance) return Miss;
+        if (!Probe.OnScreen || Travel >= TraceLimit) return Miss;
         Stride = min(Stride * 1.7, MaxDistance * 0.125);
         if (Probe.Surface) {
             // The depth separation estimates distance to the next crossing.
@@ -213,10 +244,16 @@ ReflectionResult TraceScreenReflection(vec3 SurfaceView, vec3 NormalView, vec3 D
                                         (Direction.xy * Origin.z - Origin.xy * Direction.z));
             float RayDepth = -(Origin.z + Direction.z * Travel);
             Stride = min(Stride, max(0.25, 0.02 * RayDepth * RayDepth / max(AngularSlope, 0.0001)));
+#if VOXEL_REFLECTIONS == 1
+            if (TilesReady) Stride=max(Stride,SkipEmptyReflectionTiles(Origin,Direction,Travel,TraceLimit)-Travel);
+#endif
         }
         PreviousTravel = Travel;
         Previous = Probe;
     }
     return Miss;
+}
+ReflectionResult TraceScreenReflection(vec3 SurfaceView, vec3 NormalView, vec3 Direction, float MaxDistance, int Steps, vec3 Sky) {
+    return TraceScreenReflection(SurfaceView,NormalView,Direction,MaxDistance,Steps,Sky,MaxDistance);
 }
 #endif

@@ -17,6 +17,8 @@ in vec4 Texcoord;
 in vec4 Lmcoord;
 in vec3 Normal;
 in vec4 ViewPos;
+in vec3 WaterRestWorld;
+in float WaterWaveMask;
 #include "/lib/lighting/scene.glsl"
 #include "/lib/misc/atmosphere.glsl"
 #define IDA_WATER_SURFACE_PASS
@@ -36,8 +38,8 @@ void main() {
     vec3 SurfaceNormal = SafeNormal(Normal);
     vec3 WorldPos = ViewToWorldPos(ViewPos.xyz, gbufferModelViewInverse);
     // Explicit gradients remain valid inside material / refraction branches.
-    vec2 Dpdx = dFdx(WorldPos.xz);
-    vec2 Dpdy = dFdy(WorldPos.xz);
+    vec2 Dpdx = dFdx(WaterRestWorld.xz);
+    vec2 Dpdy = dFdy(WaterRestWorld.xz);
     float ViewVariance = SpecularNormalVariance(SafeNormal(ViewPos.xyz));
     vec3 Shaded;
     float Alpha = Base.a;
@@ -51,9 +53,12 @@ void main() {
             vec4 Opaque = SampleOpaqueData(OpaqueUv);
             vec3 Behind = ReconstructOpaqueViewPos(OpaqueUv, Opaque);
             vec3 WaterLight = SrgbToLinear(texture2D(lightmap, Lmcoord.st).rgb);
-            Shaded = DrawWater(Color.rgb, WorldPos, ViewPos.xyz, Behind, SurfaceNormal, Dpdx, Dpdy, ViewVariance, ScreenUv, gl_FragCoord.z, OpaqueUv, Opaque, Lmcoord.st, WaterLight, Transmission);
+            Shaded = DrawWater(Color.rgb, WorldPos, ViewPos.xyz, Behind, SurfaceNormal, Dpdx, Dpdy, ViewVariance, ScreenUv, gl_FragCoord.z, Opaque, Lmcoord.st, WaterLight, Transmission);
         }
         Shaded = ApplyAtmosphere(Shaded, ViewPos.xyz, false);
+#if SSR_HALF_RES == 1 && SSR_TEMPORAL == 1
+        if (ReflectionSurfaceWrite.z < 0.0) ReflectionHitWrite.r *= CameraMediumTransmittance(ViewPos.xyz).r;
+#endif
         // The modeled ray includes the opaque background. Factor it out before
         // alpha blending, preserving transparent contributions already drawn.
         vec4 Layer = MakeRefractiveLayer(Shaded, texture2D(colortex11, ScreenUv).rgb, Transmission);
@@ -79,7 +84,7 @@ void main() {
 #if SSR_TEMPORAL == 1
     gl_FragData[2] = ReflectionColorWrite;
     gl_FragData[3] = ReflectionSurfaceWrite;
-    gl_FragData[4] = ReflectionHitWrite;
+    gl_FragData[4] = vec4(ReflectionHitWrite.r, 1.0, 0.0, 0.0);
 #endif
 }
 
@@ -92,6 +97,11 @@ void main() {
 
 uniform mat4 gbufferProjection;
 uniform mat4 gbufferModelView;
+uniform mat4 gbufferModelViewInverse;
+uniform vec3 cameraPosition;
+uniform float frameTimeCounter;
+#include "/lib/materials/translucents/water_noise.glsl"
+#include "/lib/misc/water_surface_cache.glsl"
 
 in vec4 mc_Entity;
 
@@ -103,10 +113,22 @@ out vec4 Texcoord;
 out vec4 Lmcoord;
 out vec3 Normal;
 out vec4 ViewPos;
+out vec3 WaterRestWorld;
+out float WaterWaveMask;
 
 void main() {
     Mat = int(mc_Entity.x);
-    ViewPos = gbufferModelView * gl_Vertex;
+    // Honor the draw's model transform, then displace in world coordinates.
+    ViewPos = gl_ModelViewMatrix * gl_Vertex;
+    WaterRestWorld = (gbufferModelViewInverse * ViewPos).xyz;
+    WaterWaveMask = 0.0;
+    if (IsWaterEntityId(float(Mat))) {
+        vec3 Absolute = WaterRestWorld + cameraPosition;
+        WaterWaveMask = WaterVertexWaveMask(Absolute,1.0);
+        float Offset = WaterVertexOffset(Absolute.xz)*WaterWaveMask*WaterShoreWaveMask(WaterRestWorld);
+        Offset *= smoothstep(0.1,0.8,(gl_TextureMatrix[1]*gl_MultiTexCoord1).t);
+        ViewPos.xyz += mat3(gbufferModelView)*vec3(0.0,Offset,0.0);
+    }
     Color = gl_Color;
     Normal = gl_NormalMatrix * gl_Normal;
     gl_Position = gbufferProjection * ViewPos;

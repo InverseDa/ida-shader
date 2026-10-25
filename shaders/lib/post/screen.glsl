@@ -38,11 +38,20 @@ bool ProjectAndSampleOpaque(vec3 P, out vec2 Uv, out vec4 Opaque, out vec2 Unjit
     ivec2 Size = textureSize(colortex4, 0);
     ivec2 Pixel = clamp(ivec2(Uv * vec2(Size)), ivec2(0), Size - 1);
     Opaque = FetchOpaqueData(Pixel);
-    if (Opaque.a > 1.5) Uv += Jitter;
-    if (!IsScreenUvInRange(Uv)) return false;
-    ivec2 ShiftedPixel = clamp(ivec2(Uv * vec2(Size)), ivec2(0), Size - 1);
-    if (any(notEqual(Pixel, ShiftedPixel))) Opaque = FetchOpaqueData(ShiftedPixel);
-    return true;
+    vec2 ShiftedUv=Uv+Jitter;
+    ivec2 ShiftedPixel=clamp(ivec2(ShiftedUv*vec2(Size)),ivec2(0),Size-1);
+    vec4 Shifted=Opaque;
+    if(any(notEqual(Pixel,ShiftedPixel))) Shifted=FetchOpaqueData(ShiftedPixel);
+    // A hole at the unjittered pixel must not hide terrain at its actual
+    // jittered location. Test both projection conventions and keep the nearer
+    // valid surface when dynamic geometry and terrain overlap.
+    bool Terrain=IsScreenUvInRange(ShiftedUv) && Shifted.a>1.5;
+    bool Dynamic=IsScreenUvInRange(Uv) && Opaque.a<=1.5 && Opaque.b<0.999999;
+    bool UseTerrain=Terrain && (!Dynamic || Shifted.b<=Opaque.b);
+    if(UseTerrain) Uv=ShiftedUv;
+    if(UseTerrain) Opaque=Shifted;
+    if(!Terrain && !Dynamic) Opaque=vec4(0.0,0.0,1.0,0.0);
+    return IsScreenUvInRange(Uv) || IsScreenUvInRange(ShiftedUv);
 }
 
 bool ProjectAndSampleOpaque(vec3 P, out vec2 Uv, out vec4 Opaque) {

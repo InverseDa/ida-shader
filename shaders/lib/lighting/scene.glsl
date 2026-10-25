@@ -7,6 +7,7 @@
 #include "/lib/lighting/cloud_shadow.glsl"
 #include "/lib/lighting/vegetation.glsl"
 #include "/lib/lighting/local_light.glsl"
+#include "/lib/lighting/voxel_gi.glsl"
 vec3 ApplySunDirectLight(vec3 Color, vec3 Normal, vec3 ViewPos, vec3 WorldPos, vec4 MaterialData, float Shadow, float TransmissionVisibility, float Ssao, vec3 VanillaLight, vec3 GeometryNormal) {
     MaterialLightingProfile Profile = GetMaterialLightingProfile(MaterialData);
     vec3 SurfaceNormal = normalize(Normal);
@@ -49,7 +50,12 @@ vec3 ApplySunDirectLight(vec3 Color, vec3 Normal, vec3 ViewPos, vec3 WorldPos, v
     vec3 Ambient = LightmapResponse * VanillaLight * MaterialAo * Profile.AmbientScale * LIGHTMAP_STRENGTH;
     vec3 Emission = Color * Profile.EmissionStrength;
     vec3 Local = EvaluateLocalLights(Color, SurfaceNormal, ViewPos, Roughness, Metallic, F0, GeometryNormal) * Profile.DirectScale;
-    return Ambient + Lighting.Direct + Lighting.Ambient + Emission + Local;
+    vec3 Indirect = vec3(0.0);
+#if VOXEL_GI == 1
+    Indirect = SampleVoxelBounce(WorldPos, normalize(mat3(gbufferModelViewInverse)*GeometryNormal)) *
+               Color * (vec3(1.0)-F0) * (1.0-Metallic) * Profile.AmbientScale * GetMaterialAO(MaterialData);
+#endif
+    return Ambient + Lighting.Direct + Lighting.Ambient + Emission + Local + Indirect;
 }
 vec3 ApplySunDirectLight(vec3 Color, vec3 Normal, vec3 ViewPos, vec3 WorldPos, vec4 MaterialData, float Shadow, float TransmissionVisibility, float Ssao, vec3 VanillaLight) {
     return ApplySunDirectLight(Color, Normal, ViewPos, WorldPos, MaterialData, Shadow, TransmissionVisibility, Ssao, VanillaLight, Normal);

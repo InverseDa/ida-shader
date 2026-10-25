@@ -34,14 +34,21 @@ const int colortex3Format = R16F;
 // Early effect depth in R; after deferred1, current reflection surface metadata.
 const vec4 colortex3ClearColor = vec4(65504.0, 0.0, 0.0, 0.0);
 const int R11F_G11F_B10F = 0;
+#if SSR_HALF_RES == 1 && SSR_TEMPORAL == 1
+const int colortex6Format = RGBA16F; // Receiver UV offset, unsigned travel, signed receiver depth; then RGB Bloom.
+const bool colortex6Nearest = false; // Filter travel; metadata is always fetched with texelFetch.
+const int colortex7Format = RGBA16F;
+#else
 const int colortex6Format = R11F_G11F_B10F;
 const int colortex7Format = R11F_G11F_B10F;
+#endif
 const int RG32F = 0;
 const int colortex1Format = RGBA16F;
 const vec4 colortex1ClearColor = vec4(0.0, 0.0, 0.0, 0.0);
 const int RG16 = 0;
 const int RGBA16 = 0;
 const int colortex8Format = RGBA16F;
+const bool colortex8Nearest = false; // Hardware bilinear water TAA; opaque depth uses texelFetch.
 #if MATERIAL_MODE == 1
 const int colortex2Format = RGBA16;
 #else
@@ -53,6 +60,7 @@ const int colortex4Format = RG32F;
 const bool colortex4Clear = true;
 const vec4 colortex4ClearColor = vec4(0.0, 1.0, 0.0, 0.0);
 const int colortex9Format = RGB16F;
+const bool colortex9Nearest = false; // Continuous water colour footprint; depth remains texelFetch.
 // Lightmap before deferred; raw opaque radiance afterwards (automatic flip).
 const bool colortex9Clear = true;
 const int R8 = 0;
@@ -68,13 +76,17 @@ const bool colortex8Clear = false;
 // Iris 1.8.x directive parsing requires four explicit components.
 const vec4 colortex8ClearColor = vec4(0.0, 0.0, 0.0, 0.0);
 const vec4 colortex5ClearColor = vec4(0.82, 0.04, 1.0, 0.0);
-// Dedicated reflection history. Geometry writes scratch 1/3/15; composite1
+// Dedicated reflection history. Geometry writes scratch 1/3/15; composite3
 // commits to these ping-pong targets after all forward draws have finished.
 const int RG16F = 0;
 const int colortex12Format = RGBA16F;
 const int colortex13Format = RGBA16F;
 const int colortex14Format = R16F;
+#if SSR_HALF_RES == 1 && SSR_TEMPORAL == 1
+const int colortex15Format = RG16F;
+#else
 const int colortex15Format = R16F;
+#endif
 const bool colortex12Clear = false;
 const bool colortex13Clear = false;
 const bool colortex14Clear = false;

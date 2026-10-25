@@ -13,7 +13,7 @@ vec4 ReflectionHitWrite = vec4(0.0);
 #include "/lib/materials/materialData.glsl"
 uniform sampler2D colortex12; // Previous isolated SSR RGB + confidence.
 uniform sampler2D colortex13; // Previous world normal oct, depth, frame/type tag.
-uniform sampler2D colortex14; // Previous signed ray travel; negative marks a dynamic hit.
+uniform sampler2D colortex14; // Signed SSR travel; <= -256 encodes voxel travel.
 #ifndef IDA_REFLECTION_MATERIAL_SAMPLER
 #define IDA_REFLECTION_MATERIAL_SAMPLER
 uniform sampler2D colortex5;
@@ -102,7 +102,7 @@ struct ReflectionHistorySample {
     float Match;
 };
 
-ReflectionHistorySample ReadReflectionHistory(vec3 Projection, vec3 NormalWorld, vec3 ExpectedHit, bool HasHit, float Kind) {
+ReflectionHistorySample ReadReflectionHistory(vec3 Projection, vec3 NormalWorld, vec3 ExpectedHit, bool HasHit, bool VoxelHit, float Kind) {
     ReflectionHistorySample History;
     History.Color = vec3(0.0);
     History.Confidence = 0.0;
@@ -138,14 +138,19 @@ ReflectionHistorySample ReadReflectionHistory(vec3 Projection, vec3 NormalWorld,
             if (Weight <= 0.0) continue;
             vec4 Color = texelFetch(colortex12, Pixel, 0);
             float SignedTravel = texelFetch(colortex14, Pixel, 0).r;
-            vec2 Hit = vec2(abs(SignedTravel), sign(SignedTravel));
+            bool WasVoxel=ReflectionVoxelTag(SignedTravel);
+            vec2 Hit = vec2(ReflectionTravel(SignedTravel), WasVoxel ? 1.0 : sign(SignedTravel));
             if (!IsFiniteRadiance(Color.rgb) || any(isnan(Hit)) || any(isinf(Hit))) continue;
             History.Support += Weight;
+            // Off-screen history is reusable only with a fresh voxel hit.
+            // Removed geometry and newly empty cells cannot leave ghost walls.
+            if (WasVoxel && !HasHit) continue;
             if (Hit.x <= 0.0 || abs(Hit.y) < 1.0 || Color.a <= 0.0) continue;
             vec3 World = ReflectionPreviousHit(TapUv, Surface, Hit, Kind);
             float Agreement = 1.0;
             if (HasHit) {
                 float Limit = max(0.12, length(ExpectedHit) * ReflectionPixelAngle() * 4.0);
+                if (WasVoxel || VoxelHit) Limit=max(Limit,0.4);
                 Agreement = 1.0 - smoothstep(Limit * 0.5, Limit, length(World - ExpectedHit));
             }
             Weight *= Agreement;
@@ -184,11 +189,11 @@ ReflectionResult ResolveTemporalReflection(ReflectionResult Current, vec3 Surfac
     bool HasHit = Current.Confidence > 0.0 && Current.HitDistance > 0.0;
     vec3 HitWorld = SurfaceWorld + NormalWorld * 0.015 + DirectionWorld * Current.HitDistance;
     float DynamicSign = 1.0;
-    if (HasHit) DynamicSign = ReflectionHitIsDynamic(WorldToViewPos(HitWorld, gbufferModelView)) ? -1.0 : 1.0;
+    if (HasHit && !Current.VoxelHit) DynamicSign = ReflectionHitIsDynamic(WorldToViewPos(HitWorld, gbufferModelView)) ? -1.0 : 1.0;
     float Dt = clamp(frameTime, 0.001, 0.25);
     if (ReflectionFrameValid()) {
         vec3 Projection = ReflectionHistoryProjection(SurfaceWorld, NormalWorld, HitWorld, HasHit, Kind);
-        ReflectionHistorySample History = ReadReflectionHistory(Projection, NormalWorld, HitWorld, HasHit, Kind);
+        ReflectionHistorySample History = ReadReflectionHistory(Projection, NormalWorld, HitWorld, HasHit, Current.VoxelHit, Kind);
         if (History.Support > 0.5) {
             if (HasHit) {
                 float Response = exp(-Dt / 0.045);
@@ -198,10 +203,15 @@ ReflectionResult ResolveTemporalReflection(ReflectionResult Current, vec3 Surfac
                 vec3 Margin = Range * 0.15 + max(Current.Color, vec3(0.1)) * 0.04;
                 vec3 OldColor = clamp(History.Color, Current.ColorMinimum - Margin, Current.ColorMaximum + Margin);
                 Current.Color = mix(Current.Color, OldColor, Blend);
-                // Fade in newly available geometry. A changed hit never blends
-                // the previous object's color into the newly visible surface.
+                // Screen-only coverage may fade in. A fresh voxel background
+                // must not disappear because the foreground changed identity.
                 float ConfidenceWeight = exp(-Dt / 0.055);
-                Current.Confidence = mix(Current.Confidence, History.Confidence, ConfidenceWeight);
+                if (!Current.StableCoverage && History.Match>0.5) {
+                    // Missing history on a newly revealed layer is not missing
+                    // current coverage. Do not fade valid new hits into holes.
+                    float OldCoverage=clamp(History.Confidence,Current.Confidence-0.2,Current.Confidence+0.2);
+                    Current.Confidence = mix(Current.Confidence, OldCoverage, ConfidenceWeight*History.Match);
+                }
             } else if (History.Match > 0.5) {
                 vec3 ToHit = History.HitWorld - SurfaceWorld - NormalWorld * 0.015;
                 float Travel = dot(ToHit, DirectionWorld);
@@ -228,7 +238,7 @@ ReflectionResult ResolveTemporalReflection(ReflectionResult Current, vec3 Surfac
     if (isEyeInWater == 0 && -SurfaceView.z > 0.0 && -SurfaceView.z < 65504.0 && IsFiniteRadiance(Current.Color)) {
         ReflectionColorWrite = vec4(clamp(Current.Color, vec3(0.0), vec3(65504.0)), clamp(Current.Confidence, 0.0, 1.0));
         ReflectionSurfaceWrite = vec4(NormalEncode(NormalWorld), -SurfaceView.z, ReflectionFrameTag(frameCounter, Kind));
-        ReflectionHitWrite = vec4(Current.HitDistance * DynamicSign, 0.0, 0.0, 0.0);
+        ReflectionHitWrite = vec4(Current.VoxelHit ? -256.0-Current.HitDistance : Current.HitDistance * DynamicSign, 0.0, 0.0, 0.0);
     }
     return Current;
 }

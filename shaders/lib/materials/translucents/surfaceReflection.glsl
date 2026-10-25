@@ -18,6 +18,8 @@ struct SmoothSurfaceReflectionProfile {
     vec3 ReflectionTint;
     float ReflectionSaturation;
     float HistoryKind;
+    float EnvironmentVisibility;
+    float CelestialVisibility;
 };
 
 SmoothSurfaceReflectionProfile CreateSmoothSurfaceReflectionProfile(float Roughness, float Reflectivity, float ReflectionVisibility, float PlanarVisibility, float SkyDiskStrength, float SkyBrightness, float SunGlareStrength, vec3 ReflectionTint, float ReflectionSaturation) {
@@ -33,6 +35,8 @@ SmoothSurfaceReflectionProfile CreateSmoothSurfaceReflectionProfile(float Roughn
     Profile.ReflectionTint = ReflectionTint;
     Profile.ReflectionSaturation = ReflectionSaturation;
     Profile.HistoryKind = 1.0;
+    Profile.EnvironmentVisibility = 1.0;
+    Profile.CelestialVisibility = 1.0;
     return Profile;
 }
 
@@ -47,10 +51,12 @@ vec3 GetSmoothSurfaceSkyReflection(vec3 ReflectDir, SmoothSurfaceReflectionProfi
 }
 
 vec4 GetSmoothSurfaceEnvironmentReflection(vec3 ReflectDir, vec3 WorldPos, SmoothSurfaceReflectionProfile Profile) {
-    vec3 Sky = GetSkyScatteringRadiance(normalize(ReflectDir), Profile.HighlightVariance) +
-               GetFilteredSkyDiskRadiance(normalize(ReflectDir), Profile.HighlightVariance) * Profile.SkyDiskStrength;
+    vec3 Direction = normalize(ReflectDir);
+    vec3 NeutralSky = mix(GetSkyBaseRadiance(Direction), SkyColor, NightValue);
+    vec3 Sky = mix(NeutralSky,GetSkyScatteringRadiance(Direction,Profile.HighlightVariance),Profile.CelestialVisibility) +
+               GetFilteredSkyDiskRadiance(Direction,Profile.HighlightVariance)*Profile.SkyDiskStrength*Profile.CelestialVisibility;
     vec4 Environment = SampleReflectionEnvironment(Sky, WorldPos, ReflectDir);
-    vec3 FallbackColor = Environment.rgb * Profile.SkyBrightness;
+    vec3 FallbackColor = Environment.rgb * Profile.SkyBrightness * Profile.EnvironmentVisibility;
     float FallbackLuma = dot(FallbackColor, vec3(0.2126, 0.7152, 0.0722));
     FallbackColor = mix(vec3(FallbackLuma), FallbackColor, Profile.ReflectionSaturation) * Profile.ReflectionTint;
     return vec4(FallbackColor, Environment.a);
@@ -63,8 +69,22 @@ vec3 ResolveSmoothSurfaceColor(vec3 BaseColor, vec3 WorldPos, vec3 ViewPos, vec3
     float SurfaceReflectivity = clamp(Profile.Reflectivity, 0.0, 1.0);
 
     if (Profile.PlanarVisibility > 0.0001 && Profile.Reflectivity > 0.0 && Profile.ReflectionVisibility > 0.0) {
-        Reflection = ResolveScreenPlanarReflection(WorldPos, WorldNormal, ReflectDir, Profile.Roughness, Profile.PlanarVisibility * Profile.ReflectionVisibility, SurfaceReflectivity, FallbackColor);
+#if SSR_HALF_RES == 1 && SSR_TEMPORAL == 1 && defined(IDA_WATER_SURFACE_PASS)
+        if (Profile.HistoryKind == 1.0 && WorldNormal.y > 0.9) {
+            // Defer only the expensive water ray search. Full-resolution wave
+            // normals, Fresnel, refraction and solar sparkle stay here.
+            ReflectionColorWrite = vec4(FallbackColor, SurfaceReflectivity);
+            // Small XZ components retain much more FP16 precision than oct
+            // coordinates near one. Side faces keep the full-resolution path.
+            ReflectionSurfaceWrite = vec4(normalize(WorldNormal).xz, ViewPos.z, ReflectionFrameTag(frameCounter, 1.0));
+            ReflectionHitWrite = vec4(1.0);
+        } else {
+#endif
+        Reflection = ResolveScreenPlanarReflection(WorldPos, WorldNormal, ReflectDir, Profile.Roughness, Profile.PlanarVisibility * Profile.ReflectionVisibility, SurfaceReflectivity, FallbackColor, Profile.HistoryKind == 1.0);
         Reflection = ResolveTemporalReflection(Reflection, ViewPos, WorldNormal, ReflectDir, Profile.HistoryKind);
+#if SSR_HALF_RES == 1 && SSR_TEMPORAL == 1 && defined(IDA_WATER_SURFACE_PASS)
+        }
+#endif
     }
 
     vec3 FinalColor = FallbackColor;
@@ -79,7 +99,7 @@ vec3 ResolveSmoothSurfaceColor(vec3 BaseColor, vec3 WorldPos, vec3 ViewPos, vec3
     // Hit/miss confidence chooses scene versus sky, never the amount of base
     // color replaced by reflection. Fresnel/transmission keep the same budget.
     FinalColor = mix(BaseColor, FinalColor, SurfaceReflectivity);
-    FinalColor += GetFilteredSkyDiskRadiance(normalize(ReflectDir), Profile.HighlightVariance) * Profile.SunGlareStrength * Profile.ReflectionTint * Environment.a;
+    FinalColor += GetFilteredSkyDiskRadiance(normalize(ReflectDir), Profile.HighlightVariance) * Profile.SunGlareStrength * Profile.ReflectionTint * Environment.a * Profile.EnvironmentVisibility * Profile.CelestialVisibility * (1.0-ReflectionBlend);
     return FinalColor;
 }
 

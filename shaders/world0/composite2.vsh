@@ -5,6 +5,6 @@
 
 // Program Configuration
 #define OVERWORLD
-#define COMPOSITE2
+#define COMPOSITE
 
-#include "/program/bloom_prefilter.glsl"
+#include "/program/taa.glsl"

@@ -1,7 +1,268 @@
 # ida-shader
 This project implements Minecraft shaders. IDA Shader is graphical effects that enhance the visual experience of the game by adding lighting, shadows, and other effects.
 
-## Current: closer CSM and placed local lights (2026-10-25)
+## Current: water without voxel completion; voxel stability fixes (2026-10-25)
+
+Shore foam has been removed, including its shading, settings and obsolete checks.
+
+Water now uses screen reflections and the existing environment fallback, including
+its side faces and full-resolution path. The Voxel Reflections toggle applies to
+ice/puddles and other non-water materials. Entirely off-screen terrain is therefore
+no longer completed in water. Water colour, waves and lighting parameters remain.
+
+Separately, voxel collection now has stable world-space boundary ownership;
+reflection traversal continues past conservative shells without valid faces and
+accepts grazing plane hits. GPU tests reproduce and fix both cache changes and
+missed intersections. No new pass or buffer. Continuous Minecraft movement and
+whole-game performance remain unaccepted; see [evidence and limits](docs/voxel-reflection-stability-2026-10-25.md).
+
+## Previous: shoreline reflection stability and independent water TAA (2026-10-25)
+
+The user reports distant foliage improved, but near-bank movement still flickers
+and near leaves still show holes. The water trace now retains a visible receiver
+inside each half-resolution footprint, including its sample position in history.
+Travel is filtered continuously; water TAA validates physical wave height.
+Material-limited near-leaf coverage smooths small gaps without dilating cave walls.
+
+Use **Stability → Water TAA** to compare history on/off with the same reflection
+algorithm. Keep Shared Planar Water Reflections and Reflection Temporal Stability
+on during this comparison. The extra near-leaf cache costs 4.0625 MiB and one
+compute pass. The final synthetic 5K bank case adds about 0.22 ms; game performance
+and visual acceptance remain pending. See [details and limits](docs/ssr-shoreline-taa-2026-10-25.md).
+
+## Previous: water reflection rewrite (2026-10-25, near-bank issues remain)
+
+The previous continuous reconstruction was also rejected in game. The default
+water path now uses a separate two-layer colour/depth source, a bounded Hi-Z
+traversal and a planar reflection field. Waves distort that field continuously;
+they no longer change millions of independent half-resolution ray searches.
+Two observed layers prevent downsampling from deleting the background between
+foreground leaves. A receiving-surface fade handles wave lookups at shorelines.
+
+Seven compute passes build the bounded source before translucent rendering.
+Buffer 7 grows by 37.33 MiB; no new full-resolution render target. The displayed
+trace setting is a budget tier (water allows four hierarchy visits per unit),
+not the previous probe count. Generic ice/puddle tracing remains separate.
+Water colour, foam, light halos and night palettes are unchanged in source.
+Synthetic checks do **not** establish Minecraft acceptance. See the
+[rewrite design and evidence](docs/ssr-planar-hiz-rewrite-2026-10-25.md) and
+[game acceptance checks](GAME_ACCEPTANCE.md).
+
+## Previous: continuous water reflections (2026-10-25, rejected in game)
+
+The previous result was rejected in game: foliage and solid cave walls still
+showed holes and flicker, and performance remained poor. Water now reconstructs
+continuous radiance with a compact tent filter instead of revalidating and
+retracing geometry at every full-resolution pixel. Tiny supported holes may be
+smoothed, with slightly softer edges. World traversal runs only when screen
+coverage needs it. Mixed terrain/dynamic TAA projection is corrected at sky/leaf
+boundaries. The ray budget stays at 32 steps, and water appearance settings stay.
+
+Unused FP32 plane storage is removed: colortex6 returns to RGBA16F, saving about
+53.48 MiB of logical paired texture storage at 5120x2739. No new target or pass.
+Independent cave, canopy, motion and 5K checks accompany the change; in-game
+acceptance remains open. See [implementation and limits](docs/ssr-continuous-water-2026-10-25.md)
+and [the latest game checks](GAME_ACCEPTANCE.md).
+
+## Previous: final water TAA and SSR cost (2026-10-25, rejected in game)
+
+The latest shoreline feedback still rejects SSR quality and performance. Water
+reconstruction was bypassing the half-resolution color history, while final TAA
+excluded water entirely. Verified water now uses the existing final TAA history,
+with reflection-aware motion, surface validation, neighborhood limits and separate
+history tags. The redundant half-resolution water temporal resolve is removed.
+Refitting cached hit planes also avoids a duplicate depth fetch; shore-contact
+rejection is tightened to preserve valid near-bank reflections.
+
+Synthetic near-foliage temporal noise falls by about **81%**. At 5120x2739,
+alternating GPU measurements including trace, resolve **and final TAA** improve
+from **6.65 to 5.87 ms** for near foliage. Far foliage improves by about 5%; flat
+and voxel-only walls are roughly unchanged. These are not full-game timings.
+The 32-step budget, ranges and texture allocations are unchanged this round.
+Far canopy gaps remain, and the reported shoreline still needs game acceptance.
+See [implementation, limits and measurements](docs/ssr-water-temporal-2026-10-25.md)
+and [game checks](GAME_ACCEPTANCE.md).
+
+## Previous: foliage SSR reconstruction and 5K cost (2026-10-25)
+
+The user accepted the corrected water appearance; its color, noise waves and
+small vertical displacement are preserved. This update targets hollow foliage
+reflections and repeated expensive searches in the full-resolution water resolve.
+
+Half-resolution tracing now retains a validated surface plane and an independent
+voxel background face, including when screen foliage wins the foreground. The
+resolve checks each current pixel against original depth and occupancy; valid
+background faces are refitted directly instead of rerunning voxel traversal.
+Alpha holes retain real background coverage. Rejected/sky taps no longer wash out
+the reflected color a second time. Unsupported water and failed block-edge hints
+still request the complete search. The 32-step budget and tracing ranges remain.
+
+Alternating old/new GPU timestamps on identical 5120×2739 synthetic inputs:
+near foliage **7.06 → 5.29 ms**, continuous wall **4.33 → 3.95 ms**, voxel-only
+wall **2.13 → 2.00 ms**. These measure reflection stages, not Minecraft FPS.
+Far foliage still has missing visible samples and limited off-screen coverage;
+the current version needs in-game acceptance at the reported shoreline.
+
+The existing half-resolution colortex6 now uses RGBA32F for plane distance and an
+exact current voxel face ID. This adds **53.48 MiB** of logical paired texture
+storage at 5120×2739; no new target or pass. Default logical color storage is
+1965.88 MiB, excluding depth/shadows, world buffers and driver allocation.
+Compile, motion/occlusion/removal, independent off-screen oracle and palette/Bloom
+checks pass. See [implementation and measurements](docs/ssr-foliage-2026-10-25.md)
+and [game checks](GAME_ACCEPTANCE.md).
+
+## Accepted appearance: biome water and noise-driven ripples (2026-10-25)
+
+The previous large Gerstner displacement was rejected in game: the block mesh
+showed repetitive deformation, and fixed blue absorption/reflection overwhelmed
+biome tint. It is replaced by four scales of world-anchored, drifting noise with
+analytic gradients, domain warping, crest shaping and pixel-footprint filtering.
+Fine ripples shade the surface; reflection rays use the smoother portion.
+
+**Water and Underwater → Water Ripple Strength** controls the normals.
+**Gentle Water Displacement** independently controls a slow vertical swell,
+bounded to +/-3.5 cm at default strength. Zero keeps ripples with a flat mesh.
+Nearby banks and waterfall bottoms remain pinned; horizontal displacement is gone.
+
+Vertex biome tint now controls scattering and absorption, including its brightness.
+Face-on water reflection uses the dielectric Fresnel value (~2%) instead of the
+previous ~30% floor. Shallow water reveals its bottom, deeper water takes the biome
+color, and grazing angles retain stronger reflections. Underwater medium follows
+the engine's underwater fog color; above-water air fog is never used as biome tint.
+
+Water celestial reflections now respect sky exposure and directional shadowing.
+The duplicate disk glare is disabled for water, and the standalone solar sparkle
+uses a much smaller, Fresnel-weighted budget. Visible solar halos and the released
+night palette are unchanged. Highlights naturally move with the observer according
+to reflection geometry; they must no longer appear unconditionally through roofs.
+
+The existing spectral water medium is extended with shadowed caustic focusing and
+12-stratum underwater sunlight (32-block limit). A 16 KiB addition to the existing
+geometry SSBO stores actual water tops in 64x64 columns. No new screen target/pass.
+It uses the highest top per column and fades near the local cache edge; stacked
+water volumes, fine shoreline geometry and photon-accurate caustics remain outside
+this approximation. Both water effects can run with GI/local lights/reflections off.
+
+Offline compile, biome/medium invariants, GPU noise/WPO/shadow checks and SSR motion tests
+passed. **The user accepted the current water appearance**; extended underwater
+checks and full-frame 5K measurements remain open.
+See [water correction and verification](docs/water-noise-2026-10-25.md),
+[earlier water/GI decision](docs/water-m4-2026-10-25.md) and
+[game checks](GAME_ACCEPTANCE.md). GI stays at strength 1.0 pending illumination
+balance work; it is a voxel surface bounce, not SSGI.
+
+## Previous: near-field voxel reflection completion (2026-10-25)
+
+**Stability → Voxel Off-screen Reflections** is on by default and independent of
+the GI switch. Water, ice and puddles now combine SSR detail with current-frame
+voxel terrain hits, including geometry outside the camera frustum or hidden by
+foreground objects. The 64³ cache stores quarter-block occupancy and block-face
+material/radiance. Coverage fades from 24 to 29 blocks on each camera axis; rays
+stop at 48 blocks. Distant misses retain the existing sky/cloud fallback.
+
+SSR still checks the segment before a voxel hit, so a nearer visible entity can
+win. The known opaque face bounds the search distance without lowering the SSR
+step budget or its confidence range. Water tops share half-resolution searches;
+the full-resolution resolve refits voxel face hints and validates screen layers,
+falling back to a complete search when necessary. Failed face hints cannot silently
+turn a wall into a sky hole. Voxel and screen hit tags remain distinct in history;
+removed voxel geometry cannot survive solely on old reflection history.
+
+No new screen targets or voxel radiance volumes are allocated relative to GI+SSR.
+A 16,400-byte screen occupancy table and one compute dispatch before deferred1
+skip only proven-empty screen tiles. Every tile checks all its source pixels plus
+a two-pixel halo, preserving thin geometry and mixed jitter. The frame/viewport
+header rejects stale tables. Sky accessibility occupies the unused half-word in
+the existing radiance cache.
+GI off / reflections on retains geometry and direct radiance but skips bounce
+storage and gathering. Neither feature changes the solar halo or night palette.
+
+This is **near-field terrain completion**, with coarse material detail rather
+than exact off-screen texture reconstruction. Fine/sloped/cutout geometry,
+transparent surfaces, off-screen entities and distant scenery remain limited.
+Screen and voxel illumination are different approximations, so a change in detail
+or shading through the blend is still possible. Game acceptance remains open.
+
+For GI verification, use **Lighting → Voxel Indirect Light → Indirect Light
+Strength**, alternating 0 and 1.5 at a fixed camera. Place a 3-block red wall beside
+a white concrete floor, light it with a placed lantern 1–2 blocks from the wall,
+and stand within 8 blocks. The white floor near the wall should gain red reflected
+light; changing the wall to blue should change that tint. Block the bounce path,
+then remove the source, and verify that the extra light disappears. Restore
+strength 1 afterwards. See the detailed Chinese steps in [game acceptance](GAME_ACCEPTANCE.md).
+
+Final synthetic **RTX 4070 Ti, 5120×2739** GPU medians (reflection passes only):
+
+| Fixture | Pure SSR, shared | Voxel + SSR, full resolution | Voxel + SSR, shared | Tile build |
+| --- | ---: | ---: | ---: | ---: |
+| Continuous wall | 2.51 ms | 7.03 ms | 4.09 ms | 0.008 ms |
+| Cutout foreground / wall | 4.72 ms | 8.23 ms | 6.83 ms | 0.008 ms |
+| All screen depths missing | 3.33 ms | 2.48 ms | 2.32 ms | 0.082 ms |
+
+The pure-SSR column draws substantially less reflected geometry; it is **not** an
+equal-output comparison. Completion still adds cost in populated scenes. These
+timestamps exclude voxel collection/injection/GI, the rest of Minecraft and the
+desktop; they are not FPS or a whole-frame performance acceptance. The prior
+unoptimized completion path spent about 7.51 ms on the all-missing fixture.
+
+The independent off-screen plane oracle retains 99.996% of covered core samples
+at 5K. The cutout comparison has 6 extra low-confidence samples and 18,647 RGB
+differences above 0.08 among 8,809,220 full-resolution hits; it is not pixel exact.
+The 640×360 moving-wave/history comparison reaches 1.96% differing colors.
+61 fixed-world-ray camera rotations keep confidence above 0.999 and maximum
+successive RGB change below 0.0064. Current-geometry removal, grid rebasing,
+screen-only nearer geometry, conservative tile occupancy, foreground depth and
+transparent-overlay checks pass. GI color transfer, source removal and occlusion
+remain unchanged. 72 stages / 32 programs and independent/off configurations pass.
+See [detailed measurements](docs/benchmarks/voxel-reflections-2026-10-25.json).
+
+## Previous: voxel GI and adaptive water SSR (2026-10-25)
+
+**Lighting → Voxel Indirect Light** enables one near-field diffuse bounce.
+The shared 64³ volume now records surface color/orientation alongside quarter-block
+occlusion. Sun/moon, cloud shadows and placed lights inject radiance; 12 fixed
+hemisphere directions gather it once per cached surface. Visibility-aware
+interpolation avoids blending through walls. Bounce rays extend 12 blocks; the
+visible contribution fades between 13 and 17 blocks on each camera axis.
+GI works independently of the placed-light and local-shadow switches.
+
+This prototype has block-scale radiance and retains the existing ambient baseline.
+It is not full path tracing and does not complete off-screen mirror reflections.
+Slopes, fine cutouts and animated resource-pack geometry still need game acceptance.
+Three fixed buffers add 30 MiB; with placed lights, world-cache storage is 47.66 MiB.
+
+**Stability → Adaptive Shared Water Tracing** is enabled by default with temporal
+SSR. Water tops trace and resolve history at half width/height; a full-resolution
+pass validates near/far layer hints against original depth and searches again when
+needed. Wave normals, Fresnel, refraction, foam and sun sparkle remain full resolution.
+The 32-step budget and 128-block range are unchanged. Ice, puddles and side faces
+retain full-resolution tracing. The new switch restores that path for water too.
+
+Synthetic RTX 4070 Ti measurements at **5120×2739**, SSR stages only:
+
+| Fixture | Full-resolution path | Adaptive shared path |
+| --- | ---: | ---: |
+| Continuous wall | 6.37 ms | 2.74 ms |
+| Cutout foliage | 9.89 ms | 8.36 ms |
+
+These are median GPU timestamps, not whole-game FPS; concurrent desktop/game load
+affects tails. In the 5K cutout comparison, 704 extra low-confidence samples and
+3,181 color differences above 0.08 remained among 2,850,283 reference hits.
+This compares against the old path, not ground truth; fine detail can still differ.
+
+Temporary traces reuse Bloom buffers before Bloom runs. Their format upgrades and
+the transparency attenuation channel add 106.97 MiB of logical color storage at 5K,
+including Iris texture pairs. Default color storage is 1912.40 MiB, excluding depth,
+shadows, SSBOs, resources and driver allocation; this is not measured VRAM.
+
+71 stages / 32 linked programs, independent/off settings, actual GPU color transfer,
+occlusion/removal/rebasing, waves/history/foreground changes and transparent
+reflection attenuation pass. With GI isolated, fixed-input daylight, solar halo,
+cloud, fog and v0.1a night-color regressions are unchanged. Full-resolution SSR
+and placed-light regressions pass. Game acceptance remains open.
+See [measurements and source hashes](docs/benchmarks/voxel-gi-ssr-2026-10-25.json).
+
+## Previous: closer CSM and placed local lights (2026-10-25)
 
 **Lighting → Cascaded Shadows (CSM)** is now enabled by default. The existing
 4096 atlas uses 8/32/96/192-block cascade radii: twice the near linear precision
@@ -58,9 +319,11 @@ See [implementation and measurements](docs/volumetric-light-2026-10-24.md).
 ## Rendering contract
 
 The current implementation targets the Overworld on Iris. It requires
-`ENTITY_TRANSLUCENT` and `PER_BUFFER_BLENDING` support.
+`ENTITY_TRANSLUCENT`, `PER_BUFFER_BLENDING`, `SSBO` and `COMPUTE_SHADERS` support (OpenGL 4.3).
 
-1. `shadow`: light-space depth, with the same foliage deformation as terrain.
+1. `begin` clears local records; `shadow` renders cascades and collects sources,
+   occluders and materials. `shadowcomp` builds clusters; `shadowcomp1/2` build
+   local shadow caches; `shadowcomp3/4` inject and gather GI, with Iris barriers.
 2. Opaque `gbuffers`: linear albedo, octahedral normals, material data, and a
    separate linear surface lightmap (block baseline plus calibrated sky fill).
    Hand rendering is forward-lit and tagged.
@@ -71,7 +334,8 @@ The current implementation targets the Overworld on Iris. It requires
    opaque normal/depth/jitter in colortex4.
    Initializes the temporal rejection mask in colortex10 while retaining early
    effect/crack marks. Unlit depth geometry (lightning) bypasses surface lighting.
-4. `deferred1`: opaque ice reflections, then one camera-to-surface atmosphere
+4. `deferred1.csh`: conservative screen occupancy from colortex4 (before reflection
+   consumers; frame and viewport tagged). `deferred1`: opaque ice reflections, then one camera-to-surface atmosphere
    evaluation. Saves its immutable fogged baseline (11), then composites early
    effects into the visible scene using their own depth/medium treatment.
    With reflection history enabled, initializes current SSR data in 1/3/15
@@ -84,7 +348,10 @@ The current implementation targets the Overworld on Iris. It requires
    Water/ice also write SSR scratch 1/3/15, preserving the opaque snapshot and
    materials. Particles use `particles.ordering=mixed`:
    opaque particles enter deferred, translucent particles and rain use forward shading.
-6. `composite`: fused one-pixel reactive-mask expansion, directional spatial AA,
+6. `composite` traces water and resolves its history into half-resolution 6/7.
+   `composite1` validates/reconstructs it and adds only the foam/atmosphere/alpha
+   attenuated reflection delta to scene color.
+7. `composite2`: fused one-pixel reactive-mask expansion, directional spatial AA,
    and TAA with current/previous jitter compensation and depth-validated
    history taps for static surfaces. Static surfaces without accepted history
    also use current-frame spatial AA while history becomes available.
@@ -96,11 +363,11 @@ The current implementation targets the Overworld on Iris. It requires
    rejects history from the other medium. Resolved color writes back to the
    colortex0 ping-pong pair; history uses RGBA16F with finite-range protection.
    This pass does not relight surfaces or apply atmosphere to the combined image.
-7. `composite1`: commit isolated SSR scratch 1/3/15 to half-resolution persistent
+8. `composite3`: commit isolated SSR scratch 1/3/15 (or water trace 6/7) to persistent
    history 12/13/14, rejecting surfaces covered by later depth-writing geometry.
    Disabled when SSR temporal stability is off. Scene color is unchanged.
    The reflection producers read only the previous committed history.
-8. `composite2/3`: half-resolution Bloom extraction/filtering.
+9. `composite4/5`: half-resolution Bloom extraction/filtering, reusing 6/7.
 9. `final`: combine linear HDR color and Bloom, tone-map, then encode sRGB.
 
 | Attachment | Meaning | Writer |
@@ -111,15 +378,15 @@ The current implementation targets the Overworld on Iris. It requires
 | colortex3 | Early effect depth in R, then SSR world normal oct.xy / linear depth.z / frame and material tag.w; RGBA16F with SSR history on, R16F otherwise | Effects, deferred1, water/ice |
 | colortex4 | Packed 12+12-bit geometric octahedral normal and readiness/jitter sign in R, unchanged FP32 hardware depth in G; RG32F; hand depth is invalidated | deferred only |
 | colortex5 | Perceptual roughness, F0/metal code, AO, packed material ID + sky-light level; RGBA8 | Opaque geometry |
-| colortex6/7 | Half-resolution Bloom, R11F_G11F_B10F | composite2/3 |
-| colortex8 | History RGB plus medium-tagged linear depth A: positive air / negative water / zero invalid, RGBA16F; retained across frames | composite |
+| colortex6/7 | Shared water surface/hit metadata and reflection RGB/confidence, then Bloom; RGBA16F with shared tracing, R11F_G11F_B10F otherwise | composite, then composite4/5 |
+| colortex8 | History RGB plus medium-tagged linear depth A: positive air / negative water / zero invalid, RGBA16F; retained across frames | composite2 |
 | colortex9 | Linear vanilla lightmap before deferred; immutable raw opaque radiance afterwards, RGB16F | Opaque geometry, then deferred |
 | colortex10 | Temporal rejection mask, R8; effect/transparent coverage accumulates; composite evaluates expanded coverage without writing another mask | Effects, deferred, translucent geometry |
 | colortex11 | Immutable opaque scene after ice reflections and atmosphere, excluding early effect layers, RGB16F | deferred1 only |
-| colortex12 | Previous isolated SSR RGB and confidence, half-resolution RGBA16F; persistent | composite1 only |
-| colortex13 | Previous SSR world normal, surface depth, frame/material tag; half-resolution RGBA16F; persistent | composite1 only |
-| colortex14 | Previous signed hit distance (negative for dynamic hits), half-resolution R16F; persistent | composite1 only |
-| colortex15 | Current signed hit distance, R16F | deferred1, water/ice |
+| colortex12 | Previous isolated mixed reflection RGB/confidence, half-resolution RGBA16F; persistent | composite3 only |
+| colortex13 | Previous reflection world normal, surface depth, frame/material tag; half-resolution RGBA16F; persistent | composite3 only |
+| colortex14 | Previous signed SSR travel; values <= -256 encode voxel travel, half-resolution R16F; persistent | composite3 only |
+| colortex15 | Current hit payload / deferred-water attenuation, RG16F with shared tracing, R16F otherwise | deferred1, water/ice, later transparent overlays |
 
 Forward reflection passes read snapshots 4/9/11, material 5 and previous SSR
 history 12/13/14. In particular, a gbuffers shader
@@ -330,7 +597,7 @@ temporal accumulation remains a separate decision after in-game acceptance.
 
 ## Shadow and contact AO refinement
 
-The next stage follows shadows/SSAO, basic wetness, shore foam, then clouds/Bloom.
+The stage sequence is shadows/SSAO, basic wetness, then clouds/Bloom; shore foam was removed on 2026-10-25.
 The first batch retains the 2048 shadow map, five shadow queries, eight AO probes,
 all current passes and all buffer formats. Incremental render-target storage is
 zero. Shadow filtering now uses `sampler2DShadow` with matching Iris directives;
@@ -1017,17 +1284,14 @@ Lightmap 控制散射，轻量复用水面顶点群系色；深水继续衰减�
 上一阶段“材质与颜色 → 高光和运动稳定性 → 云影与植被透光”实现已完成，
 用户已整体确认常规画面通过；雨夜亮点修复复测、配置与量化性能记录单独跟踪。
 
-本轮主线：**阴影与 SSAO 优化 → 基础湿润 → 岸边泡沫 → 云层与 Bloom 优化**。
+本轮主线：**阴影与 SSAO 优化 → 基础湿润 → 云层与 Bloom 优化**。岸边泡沫已按用户要求移除。
 阶段范围、预算与进度见 [ROADMAP.md](ROADMAP.md)。阴影 / 接触 AO 与基础湿润
 已完成代码和离线回归；按用户反馈补充局部积水倒影。新增渲染缓冲均为 0 MiB；
 基础湿润无新增读取；积水改为验证射线交点，每个有效像素最多 1 次噪声、
 50 次快照与 1 次颜色读取。用户接受不可见树叶面 / 离屏几何缺失为 SSR 边界，
 不继续以此阻塞主线；F4 / F6 其余场景及性能记录仍保留。
-维持 5 次阴影查询和最多 8 组 AO 采样。G 岸边泡沫已接入：复用岸底深度 /
-法线和波纹，世界坐标碎泡沫，复用水体 Lightmap 漫反射；仅近岸候选最多
-1 次材质 + 1 次噪声读取，无新增深度查询或缓冲。设置位于“水面”，
-默认开启、强度 1；水下、侧面、深水与植被跳过，仍受可见岸底信息限制。
-两种材质模式 × 泡沫开 / 关的编译和数值回归通过；G4 需要游戏内对照。
+维持 5 次阴影查询和最多 8 组 AO 采样。G 岸边泡沫于 2026-10-25 移除，
+对应着色、采样、菜单和强度选项均已删除，G4 不再列入待验收项。
 H1 云形已获用户阶段性认可，云细节按要求暂缓，完整场景与帧时间记录仍保留。
 H2 Bloom 已改为提取后插值和连续可分离高斯光晕；两阶段纹理查询由 72 降到
 50 次，保持现有曝光、阈值和两个半分辨率目标。新增渲染缓冲仍为 0 MiB。
@@ -1045,7 +1309,7 @@ H2 Bloom 已改为提取后插值和连续可分离高斯光晕；两阶段纹�
 | --- | --- | --- |
 | 光照与材质 | 线性 Lightmap、原版 / 基础 LabPBR、阴影、SSAO、简化植被背光；需校准昼夜与洞穴观感 | 纹理自发光、纹理 SSS / 厚度与更多材质通道 |
 | 天空与云雾 | 程序天空、体积云、低采样地表云影、距离雾；云内和大量透明物体仍需计时 | 体积光、更精细的云影与天气过渡；确定风格与可接受的采样预算 |
-| 水与反射 | 波纹法线、折射、水下吸收、屏幕空间反射、基础岸边泡沫；离屏和多层透明仍有限制 | 几何波浪、浪花 / 泡沫输运、焦散、离屏反射补偿；确定优先场景 |
+| 水与反射 | 波纹法线、折射、水下吸收、屏幕空间反射；离屏和多层透明仍有限制 | 几何波浪、焦散、离屏反射补偿；确定优先场景 |
 | 抗锯齿与稳定性 | 静态 TAA、动态空间 AA、高光过滤、反射置信度过渡；细高光仍需实测 | 动态时域积累；确定拖影与锐度容忍度 |
 | 后期与颜色 | Bloom、可配置固定曝光和调色；需实际画面校色 | 自动曝光；确定亮暗适应和默认色彩基准 |
 | 环境与兼容性 | 主世界、水下和已列出的特殊绘制路径 | 下界/末地、熔岩/细雪、更多状态效果；先确定覆盖范围 |
