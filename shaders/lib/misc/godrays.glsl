@@ -169,6 +169,17 @@ vec3 RenderSunShafts(vec3 OriginWorld, vec3 RayDir, float Distance) {
             CloudB = SunShaftCloudVisibility(OriginWorld + RayDir * CloudEnd, LightDir);
         }
         float CloudVisibility = mix(CloudA, CloudB, clamp((T - CloudStart) / max(CloudEnd - CloudStart, 0.0001), 0.0, 1.0));
+        // Match the directional source used by surface lighting. Using raw
+        // exp(-tau) here while surfaces retain >=50% sunlight erased canopy
+        // shafts under low-angle clouds in otherwise brightly lit scenes.
+        // This is the same artistic cloud contrast bound as surface lighting;
+        // terrain visibility remains fully black in caves and behind walls.
+#if CLOUD_SHADOWS == 1
+        float CloudStrength=CLOUD_SHADOW_STRENGTH*smoothstep(0.04,0.16,LightDir.y)*CloudWeatherContrast(rainStrength,NightValue);
+        CloudVisibility=1.0-0.5*(1.0-CloudVisibility*CloudVisibility)*clamp(CloudStrength,0.0,1.0);
+#else
+        CloudVisibility=1.0;
+#endif
 #if SHADOW_CSM == 1
         float Visibility = SunShaftCascadeVisibility(RelativeOrigin + RayDir * T) * CloudVisibility;
 #else

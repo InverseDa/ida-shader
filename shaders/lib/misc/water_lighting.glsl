@@ -1,6 +1,7 @@
 #ifndef IDA_WATER_LIGHTING_GLSL
 #define IDA_WATER_LIGHTING_GLSL
 #include "/lib/misc/water_surface_cache.glsl"
+#include "/lib/misc/water_volume_cache.glsl"
 
 float WaterDirectionalVisibility(vec3 RelativeWorld) {
 #if SHADOW_CSM == 1
@@ -63,23 +64,52 @@ vec3 RenderUnderwaterLight(vec3 RelativeEnd) {
     vec3 WaterL=-refract(-L,vec3(0,1,0),1.0/1.333);
     float Mu=max(dot(Ray,WaterL),0.0);
     float Phase=0.10+0.70*pow(Mu,6.0);
+    vec3 Light=GetDirectionalLightRadiance(SunColor,0.0)*0.75*
+               (Day*Elevation*Phase*UNDERWATER_LIGHT_STRENGTH*DIRECT_LIGHT_STRENGTH);
+#if defined(IDA_VOLUME_CACHE_ACTIVE) && !defined(IDA_VOLUME_CACHE_WRITE)
+    ivec2 CacheSize=WaterShaftCacheSize();
+    bool Ready=SunShaftVolumeHeader.x==uint(frameCounter)+1u &&
+               all(equal(SunShaftVolumeHeader.yz,uvec2(CacheSize)));
+    if (Ready) {
+        if (SunShaftVolumeHeader.w==WaterShaftCacheTag) return vec3(0.0);
+        vec3 ViewRay=mat3(gbufferModelView)*Ray;
+        vec2 Uv=ProjectViewToScreenPos(ViewRay,gbufferProjection).xy;
+        if (SunShaftVolumeHeader.w==(WaterShaftCacheTag|uint(VOLUMETRIC_LIGHT_SAMPLES)) && ViewRay.z < -0.000001 &&
+            all(greaterThanEqual(Uv,vec2(0.0))) && all(lessThanEqual(Uv,vec2(1.0))))
+            return WaterShaftIntegral(Uv,CacheSize,End)*Light;
+    }
+#endif
     vec3 Sum=vec3(0.0);
-    // Fixed world-distance strata: terminal surfaces only truncate weights.
-    // Twelve shadow comparisons, no full-resolution voxel ray search/history.
-    for (int I=0; I<12; ++I) {
-        float A=32.0*pow(float(I)/12.0,2.0), B=min(32.0*pow(float(I+1)/12.0,2.0),End);
+    float Cloud=SunShaftCloudVisibility(cameraPosition,L);
+    // Sparse, identical sample distances stamp foliage silhouettes into the
+    // volume. Resolve fine cutouts with two strata per quality sample, and
+    // distribute queries inside them instead of sampling concentric fronts.
+    // Keep the partition independent of terminal depth and the noise fixed in
+    // screen space; the existing TAA handles it without animated flicker.
+    const int Steps=2*VOLUMETRIC_LIGHT_SAMPLES;
+    float PixelPhase=fract(52.9829189*fract(dot(IDA_ATMOSPHERE_PIXEL,vec2(0.06711056,0.00583715))));
+    for (int I=0; I<Steps; ++I) {
+        float A=32.0*pow(float(I)/float(Steps),2.0), B=min(32.0*pow(float(I+1)/float(Steps),2.0),End);
         if (A>=End) break;
-        vec3 P=Ray*A;
+        float Phase=fract(PixelPhase+float(I)*0.61803398875);
+        // Clip before choosing the query: sunlight behind an opaque endpoint
+        // must never contribute to the final, partially covered interval.
+        vec3 P=Ray*mix(A,B,Phase);
         vec2 Water=FindWaterSurface(P);
-        if (Water.y<=0.0 || Water.x<0.0) continue;
-        float Visibility=WaterDirectionalVisibility(P);
-        vec3 Segment=WaterTransmittance(A)-WaterTransmittance(B);
-        Sum+=Segment*WaterTransmittance(Water.x/max(WaterL.y,0.1))*Visibility*Water.y;
+        if (Water.y>0.0 && Water.x>=0.0) {
+            float Visibility=WaterDirectionalVisibility(P);
+            vec3 Segment=WaterTransmittance(A)-WaterTransmittance(B);
+            Sum+=Segment*WaterTransmittance(Water.x/max(WaterL.y,0.1))*Visibility*Water.y*Cloud;
+        }
+#ifdef IDA_VOLUME_CACHE_WRITE
+        if (I % 2 == 1) {
+            SunShaftVolumeData[SunShaftCacheAddress(SunShaftWritePixel,SunShaftWriteSize,I-1)]=packHalf2x16(Sum.rg);
+            SunShaftVolumeData[SunShaftCacheAddress(SunShaftWritePixel,SunShaftWriteSize,I)]=packHalf2x16(vec2(Sum.b,0.0));
+        }
+#endif
     }
     // One cloud column per ray; terrain and foliage still queried per stratum.
-    float Cloud=SunShaftCloudVisibility(cameraPosition,L);
-    return Sum*GetDirectionalLightRadiance(SunColor,0.0)*0.75*
-           (Day*Elevation*Phase*Cloud*UNDERWATER_LIGHT_STRENGTH*DIRECT_LIGHT_STRENGTH);
+    return Sum*Light;
 #else
     return vec3(0.0);
 #endif
