@@ -11,9 +11,8 @@
 #include "/lib/lighting/frame.glsl"
 #endif
 
-// =============================================================================
-// Fragment Shader
-// =============================================================================
+// ---- Fragment Shader ----
+
 #ifdef FRAGMENT_SHADER
 
 #include "/lib/misc/water_medium.glsl"
@@ -41,10 +40,14 @@ in vec3 ViewPos;
 #else
 /* RENDERTARGETS: 0,2,5,9 */
 #endif
-void main() {
+void main()
+{
     vec4 Base = texture2D(texture, Texcoord.st) * Color;
 #if !defined(IDA_MATERIALS_PBR_GLSL) || MATERIAL_MODE == 0
-    if (Base.a <= 0.001) discard;
+    if (Base.a <= 0.001)
+    {
+        discard;
+    }
 #endif
 #if defined(GBUFFERS_HAND) || defined(GBUFFERS_HAND_WATER) || (defined(FORWARD_TRANSLUCENT) && (defined(COLOR_ONLY) || defined(PARTICLE)))
     vec3 VanillaLight = SrgbToLinear(texture2D(lightmap, Lmcoord.st).rgb);
@@ -60,6 +63,7 @@ void main() {
     vec4 Material = PackMaterialData(0.82, 0.04, 1.0, MaterialIdDynamic);
 #endif
     Material = WithMaterialSkyLight(Material, Lmcoord.t);
+
 // Hands are intentionally Lightmap-only; sampling PBR here has no visible use.
 #if !defined(COLOR_ONLY) && !defined(PARTICLE) && !defined(GBUFFERS_HAND) && !defined(GBUFFERS_HAND_WATER)
     PbrMaterialSample Pbr = SamplePbrMaterial(Texcoord.st, GeometryNormal, ViewPos, Material);
@@ -68,11 +72,18 @@ void main() {
 #endif
     // Keep normal derivatives valid for alpha-tested edge helper invocations.
 #if defined(IDA_MATERIALS_PBR_GLSL) && MATERIAL_MODE == 1
-    if (Base.a <= 0.001) discard;
+    if (Base.a <= 0.001)
+    {
+        discard;
+    }
 #endif
 #if defined(GBUFFERS_HAND) || defined(GBUFFERS_HAND_WATER)
     Albedo *= VanillaLight;
-    if (isEyeInWater == 1) Albedo = ApplyUnderwaterMedium(Albedo, length(ViewPos));
+
+    if (isEyeInWater == 1)
+    {
+        Albedo = ApplyUnderwaterMedium(Albedo, length(ViewPos));
+    }
 #elif defined(FORWARD_TRANSLUCENT)
 #if defined(COLOR_ONLY) || defined(PARTICLE)
     Albedo *= VanillaLight;
@@ -90,10 +101,11 @@ void main() {
 #if defined(FORWARD_TRANSLUCENT)
     gl_FragData[1] = vec4(max(Base.a, 1.0 / 255.0));
 #if SSR_HALF_RES == 1 && SSR_TEMPORAL == 1
-    gl_FragData[2] = vec4(0.0,0.0,0.0,Base.a);
+    gl_FragData[2] = vec4(0.0, 0.0, 0.0, Base.a);
 #endif
 #else
     gl_FragData[1] = vec4(NormalEncode(GeometryNormal), GeometryNormalOct);
+
     gl_FragData[2] = Material;
 #if defined(GBUFFERS_HAND)
     // First-person hand rendering intentionally covers earlier world overlays.
@@ -104,9 +116,8 @@ void main() {
 
 #endif // FRAGMENT_SHADER
 
-// =============================================================================
-// Vertex Shader
-// =============================================================================
+// ---- Vertex Shader ----
+
 #ifdef VERTEX_SHADER
 
 out vec4 Color;
@@ -115,7 +126,8 @@ out vec4 Lmcoord;
 out vec3 Normal;
 out vec3 ViewPos;
 
-void main() {
+void main()
+{
     vec4 PositionInView = gl_ModelViewMatrix * gl_Vertex;
     ViewPos = PositionInView.xyz;
     gl_Position = gl_ProjectionMatrix * PositionInView;

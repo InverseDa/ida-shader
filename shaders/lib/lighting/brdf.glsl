@@ -1,44 +1,54 @@
 #ifndef IDA_LIGHTING_BRDF_GLSL
 #define IDA_LIGHTING_BRDF_GLSL
 
+// ---- Brdf ----
+
 const float PI = 3.14159265;
 
-float DistributionGGX(float NoH, float Roughness) {
+float DistributionGGX(float NoH, float Roughness)
+{
     float A = Roughness * Roughness;
     float A2 = A * A;
     float Denom = NoH * NoH * (A2 - 1.0) + 1.0;
-    // A large denominator epsilon made the sharpest lobes DARKER, so increasing
-    // roughness could create a bright flash. Protect division separately from
-    // a bounded HDR peak (the old curve's maximum was approximately 56).
+
+    // Separate division protection from the HDR peak cap to keep sharp lobes monotonic.
     return min(A2 / max(PI * Denom * Denom, 1e-12), 64.0);
 }
 
-float GeometrySchlickGGX(float NoV, float Roughness) {
+float GeometrySchlickGGX(float NoV, float Roughness)
+{
     float R = Roughness + 1.0;
     float K = (R * R) / 8.0;
+
     return NoV / max(NoV * (1.0 - K) + K, 0.0001);
 }
 
-float GeometrySmith(float NoV, float NoL, float Roughness) {
+float GeometrySmith(float NoV, float NoL, float Roughness)
+{
     return GeometrySchlickGGX(NoV, Roughness) * GeometrySchlickGGX(NoL, Roughness);
 }
 
-vec3 FresnelSchlick(float CosTheta, vec3 F0) {
+vec3 FresnelSchlick(float CosTheta, vec3 F0)
+{
     // Normalized dot products can round slightly above one. GLSL pow with a
     // negative base is undefined, even for the nominal integer exponent 5.
     float Grazing = 1.0 - clamp(CosTheta, 0.0, 1.0);
     float Grazing2 = Grazing * Grazing;
+
     return F0 + (1.0 - F0) * (Grazing2 * Grazing2 * Grazing);
 }
 
-vec3 FresnelSchlickRoughness(float CosTheta, vec3 F0, float Roughness) {
+vec3 FresnelSchlickRoughness(float CosTheta, vec3 F0, float Roughness)
+{
     vec3 OneMinusRoughness = vec3(1.0 - Roughness);
     float Grazing = 1.0 - clamp(CosTheta, 0.0, 1.0);
     float Grazing2 = Grazing * Grazing;
+
     return F0 + (max(OneMinusRoughness, F0) - F0) * (Grazing2 * Grazing2 * Grazing);
 }
 
-vec3 EvaluateDirectionalBRDF(vec3 Albedo, vec3 Normal, vec3 ViewDir, vec3 LightDir, vec3 Radiance, float Roughness, float Metallic, vec3 F0) {
+vec3 EvaluateDirectionalBRDF(vec3 Albedo, vec3 Normal, vec3 ViewDir, vec3 LightDir, vec3 Radiance, float Roughness, float Metallic, vec3 F0)
+{
     vec3 HalfSum = ViewDir + LightDir;
     vec3 HalfVector = HalfSum * inversesqrt(max(dot(HalfSum, HalfSum), 1e-8));
     float NoV = clamp(dot(Normal, ViewDir), 0.0001, 1.0);

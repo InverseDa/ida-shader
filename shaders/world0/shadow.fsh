@@ -1,5 +1,7 @@
 #version 430 compatibility
 
+// ---- Shadow ----
+
 // Shader Stage
 #define FRAGMENT_SHADER
 

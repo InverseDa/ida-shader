@@ -1,5 +1,7 @@
 #version 430 compatibility
 
+// ---- Gbuffers Skytextured ----
+
 // Shader Stage
 #define FRAGMENT_SHADER
 

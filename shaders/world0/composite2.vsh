@@ -1,5 +1,7 @@
 #version 430 compatibility
 
+// ---- Composite2 ----
+
 // Shader Stage
 #define VERTEX_SHADER
 

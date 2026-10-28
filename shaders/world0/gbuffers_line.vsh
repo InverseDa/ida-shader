@@ -1,5 +1,7 @@
 #version 430 compatibility
 
+// ---- Gbuffers Line ----
+
 // Shader Stage
 #define VERTEX_SHADER
 

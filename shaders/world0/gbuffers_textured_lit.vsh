@@ -1,5 +1,7 @@
 #version 430 compatibility
 
+// ---- Gbuffers Textured Lit ----
+
 // Shader Stage
 #define VERTEX_SHADER
 

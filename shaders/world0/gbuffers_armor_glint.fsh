@@ -1,5 +1,7 @@
 #version 430 compatibility
 
+// ---- Gbuffers Armor Glint ----
+
 // Shader Stage
 #define FRAGMENT_SHADER
 

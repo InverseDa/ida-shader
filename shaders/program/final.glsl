@@ -3,9 +3,8 @@
 #include "/lib/settings.glsl"
 #include "/lib/common/tonemap.glsl"
 
-// =============================================================================
-// Fragment Shader
-// =============================================================================
+// ---- Fragment Shader ----
+
 #ifdef FRAGMENT_SHADER
 
 uniform sampler2D colortex0; // color after TAA
@@ -13,56 +12,67 @@ uniform sampler2D colortex7; // bloom
 
 in vec4 Texcoord;
 
-vec3 Saturation(vec3 Color, float Factor) {
+vec3 Saturation(vec3 Color, float Factor)
+{
     Color = clamp(Color, 0.0, 1.0);
     float Brightness = dot(Color, vec3(0.2125, 0.7154, 0.0721));
     vec3 Chroma = Color - vec3(Brightness);
+
     // Bound chroma along its original direction instead of clipping channels
     // independently. Bright red/cyan blocks keep their hue and luminance.
     float Peak = max(Chroma.r, max(Chroma.g, Chroma.b));
     float Trough = min(Chroma.r, min(Chroma.g, Chroma.b));
     float GamutLimit = min((1.0 - Brightness) / max(Peak, 0.00001),
-                          Brightness / max(-Trough, 0.00001));
+                           Brightness / max(-Trough, 0.00001));
+
     return vec3(Brightness) + Chroma * min(max(Factor, 0.0), max(GamutLimit, 1.0));
 }
 
-vec3 Contrast(vec3 Color, float Factor) {
+vec3 Contrast(vec3 Color, float Factor)
+{
     return (Color - 0.5) * Factor + 0.5;
 }
 
-vec3 Vibrance(vec3 Color, float Strength) {
+vec3 Vibrance(vec3 Color, float Strength)
+{
     float MaxChannel = max(Color.r, max(Color.g, Color.b));
     float MinChannel = min(Color.r, min(Color.g, Color.b));
     float Chroma = MaxChannel - MinChannel;
     float Boost = (1.0 - clamp(Chroma, 0.0, 1.0)) * Strength;
+
     return Saturation(Color, 1.0 + Boost);
 }
 
-void main() {
+void main()
+{
     vec4 Color = texture2D(colortex0, Texcoord.st);
-    if (BLOOM_STRENGTH > 0.0) {
+
+    if (BLOOM_STRENGTH > 0.0)
+    {
         vec3 Bloom = texture2D(colortex7, Texcoord.st).rgb;
         Color.rgb += Bloom * BLOOM_STRENGTH;
     }
+
     Color.rgb = ACESToneMapping(Color.rgb, EXPOSURE);
     Color.rgb = LinearToSrgb(Color.rgb);
     Color.rgb = Contrast(Color.rgb, COLOR_CONTRAST);
     Color.rgb = Vibrance(Color.rgb, COLOR_VIBRANCE);
     Color.rgb = Saturation(Color.rgb, COLOR_SATURATION);
     Color.rgb = clamp(Color.rgb, 0.0, 1.0);
+
     gl_FragData[0] = Color;
 }
 
 #endif // FRAGMENT_SHADER
 
-// =============================================================================
-// Vertex Shader
-// =============================================================================
+// ---- Vertex Shader ----
+
 #ifdef VERTEX_SHADER
 
 out vec4 Texcoord;
 
-void main() {
+void main()
+{
     gl_Position = ftransform();
     Texcoord = gl_MultiTexCoord0;
 }

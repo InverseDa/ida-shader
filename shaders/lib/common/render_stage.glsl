@@ -1,7 +1,12 @@
 #ifndef IDA_RENDER_STAGE_GLSL
 #define IDA_RENDER_STAGE_GLSL
+
+// ---- Render Stage ----
+
 uniform int renderStage;
-bool IsHandStage() {
+
+bool IsHandStage()
+{
 #if defined(MC_RENDER_STAGE_HAND_SOLID) && defined(MC_RENDER_STAGE_HAND_TRANSLUCENT)
     return renderStage == MC_RENDER_STAGE_HAND_SOLID || renderStage == MC_RENDER_STAGE_HAND_TRANSLUCENT;
 #else
@@ -9,7 +14,8 @@ bool IsHandStage() {
 #endif
 }
 
-bool IsOutlineStage() {
+bool IsOutlineStage()
+{
 #ifdef MC_RENDER_STAGE_OUTLINE
     return renderStage == MC_RENDER_STAGE_OUTLINE;
 #else

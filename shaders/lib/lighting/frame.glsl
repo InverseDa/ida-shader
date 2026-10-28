@@ -3,9 +3,8 @@
 
 // Shared by the opaque lighting pass and forward translucent geometry.
 
-// =============================================================================
-// Fragment Shader
-// =============================================================================
+// ---- Fragment Shader ----
+
 #ifdef FRAGMENT_SHADER
 
 uniform mat4 gbufferProjection;
@@ -34,9 +33,8 @@ in float NightValue;
 #include "/lib/post/screen.glsl"
 #endif
 
-// =============================================================================
-// Vertex Shader
-// =============================================================================
+// ---- Vertex Shader ----
+
 #ifdef VERTEX_SHADER
 
 uniform int worldTime;
@@ -45,7 +43,9 @@ uniform vec3 skyColor;
 out vec3 SkyColor;
 out vec3 SunColor;
 out float NightValue;
-void SetupFrameLighting() {
+
+void SetupFrameLighting()
+{
     int Time = worldTime - (worldTime / 24000) * 24000;
     int Hour = Time / 1000;
     int Next = (Hour + 1 < 24) ? Hour + 1 : 0;
@@ -53,6 +53,7 @@ void SetupFrameLighting() {
     SunColor = SrgbToLinear(mix(SunColorArr[Hour], SunColorArr[Next], Delta));
     NightValue = clamp((float(Time) - 12000.0) / 1000.0, 0.0, 1.0) *
                  (1.0 - clamp((float(Time) - 23000.0) / 1000.0, 0.0, 1.0));
+
     // The released night palette is shared by sky, clouds, reflections and fill.
     SkyColor = GetFrameSkyColor(skyColor, NightValue);
 }

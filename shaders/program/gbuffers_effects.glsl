@@ -4,9 +4,8 @@
 #include "/lib/common/render_stage.glsl"
 #include "/lib/post/taa.glsl"
 
-// =============================================================================
-// Fragment Shader
-// =============================================================================
+// ---- Fragment Shader ----
+
 #ifdef FRAGMENT_SHADER
 
 uniform sampler2D texture;
@@ -24,13 +23,18 @@ in vec3 ViewPos;
 #else
 /* RENDERTARGETS: 0,1,10,3 */
 #endif
-void main() {
+void main()
+{
 #ifdef EFFECT_UNTEXTURED
     vec4 Base = Color;
 #else
     vec4 Base = texture2D(texture, Texcoord) * Color;
 #endif
-    if (Base.a <= 0.001) discard;
+    if (Base.a <= 0.001)
+    {
+        discard;
+    }
+
     vec3 Radiance = SrgbToLinear(Base.rgb);
 #ifdef EFFECT_LIT
     Radiance *= SrgbToLinear(texture2D(lightmap, Lmcoord).rgb);
@@ -39,52 +43,65 @@ void main() {
     // Vanilla glint uses SRC_COLOR + ONE; preserve its squared source term.
     Radiance = SrgbToLinear(Base.rgb * Base.rgb);
 #endif
-    bool Hand = IsHandStage();
+    bool bHand = IsHandStage();
     float Coverage = clamp(Base.a, 0.0, 1.0);
     vec4 Layer;
 #if defined(EFFECT_GLINT) || defined(EFFECT_EYES)
-    vec3 Transmission = Hand ? (isEyeInWater == 1 ? WaterTransmittance(length(ViewPos)) : vec3(1.0))
-                             : CameraMediumTransmittance(ViewPos);
+    vec3 Transmission = bHand ? (isEyeInWater == 1 ? WaterTransmittance(length(ViewPos)) : vec3(1.0))
+                              : CameraMediumTransmittance(ViewPos);
     Layer = vec4(Radiance * Transmission * Coverage, 0.0); // Additive, no background fog.
 #else
-    if (!Hand)
+    if (!bHand)
+    {
         Radiance = ApplyAtmosphere(Radiance, ViewPos, false);
+    }
     else if (isEyeInWater == 1)
+    {
         Radiance = ApplyUnderwaterMedium(Radiance, length(ViewPos));
+    }
+
     Layer = vec4(Radiance * Coverage, Coverage);
 #endif
     // Unlike renderStage, this marker distinguishes pre/post deferred entity
     // draws as well as hand and modded effects. It is reset at every frame.
-    bool AfterDeferred = OpaqueSnapshotReady();
-    gl_FragData[0] = AfterDeferred ? Layer : vec4(0.0);
-    gl_FragData[1] = AfterDeferred ? vec4(0.0) : Layer;
+    bool bAfterDeferred = OpaqueSnapshotReady();
+
+    gl_FragData[0] = bAfterDeferred ? Layer : vec4(0.0);
+
+    gl_FragData[1] = bAfterDeferred ? vec4(0.0) : Layer;
+
     gl_FragData[2] = vec4(max(Coverage, 1.0 / 255.0));
-    // FP16 view depth keeps useful precision without allocating another buffer.
-    // Alpha zero preserves late reflection metadata with the attachment's
-    // separate blend rule. Early effects write their depth for deferred1.
-    gl_FragData[3] = vec4(clamp(-ViewPos.z, 0.0, 65504.0), 0.0, 0.0, AfterDeferred ? 0.0 : 1.0);
+
+    // FP16 view depth preserves early-effect depth; alpha zero preserves late reflection metadata.
+    gl_FragData[3] = vec4(clamp(-ViewPos.z, 0.0, 65504.0), 0.0, 0.0, bAfterDeferred ? 0.0 : 1.0);
 #if SSR_HALF_RES == 1 && SSR_TEMPORAL == 1
-    gl_FragData[4] = vec4(0.0,0.0,0.0,AfterDeferred ? Layer.a : 0.0);
+    gl_FragData[4] = vec4(0.0, 0.0, 0.0, bAfterDeferred ? Layer.a : 0.0);
 #endif
 }
 
 #endif // FRAGMENT_SHADER
 
-// =============================================================================
-// Vertex Shader
-// =============================================================================
+// ---- Vertex Shader ----
+
 #ifdef VERTEX_SHADER
 
 out vec4 Color;
 out vec2 Texcoord;
 out vec2 Lmcoord;
 out vec3 ViewPos;
-void main() {
+
+void main()
+{
     vec4 P = gl_ModelViewMatrix * gl_Vertex;
     ViewPos = P.xyz;
     gl_Position = gl_ProjectionMatrix * P;
+
     // Block selection lines must stay on the jittered terrain they outline.
-    if (IsOutlineStage()) ApplyTaaJitter(gl_Position);
+    if (IsOutlineStage())
+    {
+        ApplyTaaJitter(gl_Position);
+    }
+
     Color = gl_Color;
     Texcoord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).st;
     Lmcoord = (gl_TextureMatrix[1] * gl_MultiTexCoord1).st;

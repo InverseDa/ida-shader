@@ -1,5 +1,7 @@
 #version 430 compatibility
 
+// ---- Composite4 ----
+
 // Shader Stage
 #define FRAGMENT_SHADER
 

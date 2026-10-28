@@ -1,5 +1,7 @@
 #version 430 compatibility
 
+// ---- Gbuffers Particles Translucent ----
+
 // Shader Stage
 #define FRAGMENT_SHADER
 

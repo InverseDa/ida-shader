@@ -1,53 +1,10 @@
-/*
---------------------------------------------------------------------------------
-
-  GLSL Debug Text Renderer by SixthSurge (updated 2023-04-08)
-
-  Character set based on Monocraft by IdreesInc
-  https://github.com/IdreesInc/Monocraft
-
-  With additional Characters added by WoMspace
-
-  Usage:
-
-  // Call BeginText to initialize the text renderer. You can scale the fragment position to adjust the size of the text
-  BeginText(ivec2(gl_FragCoord.xy), ivec2(0, viewHeight));
-            ^ fragment position     ^ text box position (upper left corner)
-
-  // You can print various data types
-  PrintBool(false);
-  PrintFloat(sqrt(-1.0)); // Prints "NaN"
-  PrintInt(42);
-  PrintVec3(SkyColor);
-
-  // ...or arbitrarily long strings
-  PrintString((GlyphUpperH, GlyphLowerE, GlyphLowerL, GlyphLowerL, GlyphLowerO, GlyphComma, GlyphSpace, GlyphLowerW, GlyphLowerO, GlyphLowerR, GlyphLowerL, GlyphLowerD));
-
-  // To start a new line, use
-  PrintLine();
-
-  // You can also configure the text color on the fly
-  TextState.FgCol = vec4(1.0, 0.0, 0.0, 1.0);
-  TextState.BgCol = vec4(0.0, 0.0, 0.0, 1.0);
-
-  // ...as well as the number base and number of decimal places to print
-  TextState.Base = 16;
-  TextState.FpPrecision = 4;
-
-  // Finally, call EndText to blend the current fragment color with the text
-  EndText(FragColor);
-
-  Important: any variables you display must be the same for all fragments, or
-  at least all of the fragments that the text covers. Otherwise, different
-  fragments will try to print different values, resulting in, well, a mess
-
---------------------------------------------------------------------------------
-*/
+// GLSL Debug Text Renderer by SixthSurge; Monocraft by IdreesInc; additions by WoMspace.
+// Usage and original attribution: docs/shader-text-renderer-usage.md.
 
 #if !defined UTILITY_TEXTRENDERING_INCLUDED
 #define UTILITY_TEXTRENDERING_INCLUDED
 
-// Characters
+// ---- Characters ----
 
 const uint GlyphUpperA = 0x747f18c4u;
 const uint GlyphUpperB = 0xf47d18f8u;
@@ -138,9 +95,10 @@ const int LineSpacing = 1;
 const ivec2 CharSize = ivec2(CharWidth, CharHeight);
 const ivec2 SpaceSize = CharSize + ivec2(CharSpacing, LineSpacing);
 
-// Text renderer
+// ---- Text State And Composition ----
 
-struct Text {
+struct Text
+{
     vec4 Result;     // Output color from the text renderer
     vec4 FgCol;      // Text foreground color
     vec4 BgCol;      // Text background color
@@ -151,8 +109,8 @@ struct Text {
     int FpPrecision; // Number of decimal places to print
 } TextState;
 
-// Fills the global text object with default values
-void BeginText(ivec2 FragPos, ivec2 TextPos) {
+void BeginText(ivec2 FragPos, ivec2 TextPos)
+{
     TextState.Result = vec4(0.0);
     TextState.FgCol = vec4(1.0);
     TextState.BgCol = vec4(0.0, 0.0, 0.0, 0.6);
@@ -163,43 +121,52 @@ void BeginText(ivec2 FragPos, ivec2 TextPos) {
     TextState.FpPrecision = 2;
 }
 
-// Applies the rendered text to the fragment
-void EndText(inout vec3 FragColor) {
+void EndText(inout vec3 FragColor)
+{
     FragColor = mix(FragColor.rgb, TextState.Result.rgb, TextState.Result.a);
 }
 
-void PrintChar(uint Character) {
+void PrintChar(uint Character)
+{
     ivec2 Pos = TextState.FragPos - TextState.TextPos - SpaceSize * TextState.CharPos * ivec2(1, -1) + ivec2(0, SpaceSize.y);
 
     uint Index = uint(CharWidth - Pos.x + Pos.y * CharWidth + 1); // Edited
 
     // Draw background
     if (clamp(Pos, ivec2(0), SpaceSize - 1) == Pos)
+    {
         TextState.Result = mix(TextState.Result, TextState.BgCol, TextState.BgCol.a);
+    }
 
     // Draw character
     if (clamp(Pos, ivec2(0), CharSize - 1) == Pos)
+    {
         TextState.Result = mix(TextState.Result, TextState.FgCol, TextState.FgCol.a * float(Character >> Index & 1u));
+    }
 
     // Advance to next character
     TextState.CharPos.x++;
 }
 
-#define PrintString(String)                           \
+#define PRINT_STRING(String)                          \
     {                                                 \
         uint[] Characters = uint[] String;            \
         for (int I = 0; I < Characters.length(); ++I) \
+        {                                             \
             PrintChar(Characters[I]);                 \
+        }                                             \
     }
 
-void PrintUnsignedInt(uint Value, int Len) {
+void PrintUnsignedInt(uint Value, int Len)
+{
     const uint[36] Digits = uint[](GlyphLower0, GlyphLower1, GlyphLower2, GlyphLower3, GlyphLower4, GlyphLower5, GlyphLower6, GlyphLower7, GlyphLower8, GlyphLower9, GlyphLowerA, GlyphLowerB, GlyphLowerC, GlyphLowerD, GlyphLowerE, GlyphLowerF, GlyphLowerG, GlyphLowerH, GlyphLowerI, GlyphLowerJ, GlyphLowerK, GlyphLowerL, GlyphLowerM, GlyphLowerN, GlyphLowerO, GlyphLowerP, GlyphLowerQ, GlyphLowerR, GlyphLowerS, GlyphLowerT, GlyphLowerU, GlyphLowerV, GlyphLowerW, GlyphLowerX, GlyphLowerY, GlyphLowerZ);
 
     // Advance to end of the number
     TextState.CharPos.x += Len - 1;
 
     // Write number backwards
-    for (int I = 0; I < Len; ++I) {
+    for (int I = 0; I < Len; ++I)
+    {
         PrintChar(Digits[int(Value) % TextState.Base]); // Edited
         Value /= uint(TextState.Base);                  // Edited
         TextState.CharPos.x -= 2;
@@ -209,7 +176,8 @@ void PrintUnsignedInt(uint Value, int Len) {
     TextState.CharPos.x += Len + 1;
 }
 
-void PrintUnsignedInt(uint Value) {
+void PrintUnsignedInt(uint Value)
+{
     float LogValue = log(float(Value)) + 1e-6;
     float LogBase = log(float(TextState.Base));
 
@@ -219,20 +187,35 @@ void PrintUnsignedInt(uint Value) {
     PrintUnsignedInt(Value, Len);
 }
 
-void PrintInt(int Value) {
-    if (Value < 0) PrintChar(GlyphMinus);
+void PrintInt(int Value)
+{
+    if (Value < 0)
+    {
+        PrintChar(GlyphMinus);
+    }
+
     PrintUnsignedInt(uint(abs(Value)));
 }
 
-void PrintFloat(float Value) {
-    if (Value < 0.0) PrintChar(GlyphMinus);
+void PrintFloat(float Value)
+{
+    if (Value < 0.0)
+    {
+        PrintChar(GlyphMinus);
+    }
 
-    if (isnan(Value)) {
-        PrintString((GlyphUpperN, GlyphLowerA, GlyphUpperN));
-    } else if (isinf(Value)) {
-        PrintString((GlyphLowerI, GlyphLowerN, GlyphLowerF));
-    } else {
-        float I, F = modf(abs(Value), I);
+    if (isnan(Value))
+    {
+        PRINT_STRING((GlyphUpperN, GlyphLowerA, GlyphUpperN));
+    }
+    else if (isinf(Value))
+    {
+        PRINT_STRING((GlyphLowerI, GlyphLowerN, GlyphLowerF));
+    }
+    else
+    {
+        float I;
+        float F = modf(abs(Value), I);
 
         uint IntegralPart = uint(I);
         uint FractionalPart = uint(F * pow(float(TextState.Base), float(TextState.FpPrecision)) + 0.5);
@@ -243,87 +226,105 @@ void PrintFloat(float Value) {
     }
 }
 
-void PrintBool(bool Value) {
-    if (Value) {
-        PrintString((GlyphLowerT, GlyphLowerR, GlyphLowerU, GlyphLowerE));
-    } else {
-        PrintString((GlyphLowerF, GlyphLowerA, GlyphLowerL, GlyphLowerS, GlyphLowerE));
+// ---- Numeric Formatting ----
+
+void PrintBool(bool bValue)
+{
+    if (bValue)
+    {
+        PRINT_STRING((GlyphLowerT, GlyphLowerR, GlyphLowerU, GlyphLowerE));
+    }
+    else
+    {
+        PRINT_STRING((GlyphLowerF, GlyphLowerA, GlyphLowerL, GlyphLowerS, GlyphLowerE));
     }
 }
 
-void PrintVec2(vec2 Value) {
+// ---- Vector Formatting ----
+
+void PrintVec2(vec2 Value)
+{
     PrintFloat(Value.x);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintFloat(Value.y);
 }
 
-void PrintVec3(vec3 Value) {
+void PrintVec3(vec3 Value)
+{
     PrintFloat(Value.x);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintFloat(Value.y);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintFloat(Value.z);
 }
 
-void PrintVec4(vec4 Value) {
+void PrintVec4(vec4 Value)
+{
     PrintFloat(Value.x);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintFloat(Value.y);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintFloat(Value.z);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintFloat(Value.w);
 }
 
-void PrintIvec2(ivec2 Value) {
+void PrintIvec2(ivec2 Value)
+{
     PrintInt(Value.x);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintInt(Value.y);
 }
 
-void PrintIvec3(ivec3 Value) {
+void PrintIvec3(ivec3 Value)
+{
     PrintInt(Value.x);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintInt(Value.y);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintInt(Value.z);
 }
 
-void PrintIvec4(ivec4 Value) {
+void PrintIvec4(ivec4 Value)
+{
     PrintInt(Value.x);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintInt(Value.y);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintInt(Value.z);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintInt(Value.w);
 }
 
-void PrintUvec2(uvec2 Value) {
+void PrintUvec2(uvec2 Value)
+{
     PrintUnsignedInt(Value.x);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintUnsignedInt(Value.y);
 }
 
-void PrintUvec3(uvec3 Value) {
+void PrintUvec3(uvec3 Value)
+{
     PrintUnsignedInt(Value.x);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintUnsignedInt(Value.y);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintUnsignedInt(Value.z);
 }
 
-void PrintUvec4(uvec4 Value) {
+void PrintUvec4(uvec4 Value)
+{
     PrintUnsignedInt(Value.x);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintUnsignedInt(Value.y);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintUnsignedInt(Value.z);
-    PrintString((GlyphComma, GlyphSpace));
+    PRINT_STRING((GlyphComma, GlyphSpace));
     PrintUnsignedInt(Value.w);
 }
 
-void PrintLine() {
+void PrintLine()
+{
     TextState.CharPos.x = 0;
     ++TextState.CharPos.y;
 }

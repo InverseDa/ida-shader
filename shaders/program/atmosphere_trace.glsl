@@ -1,3 +1,5 @@
+// ---- Atmosphere Trace ----
+
 #include "/lib/constant.glsl"
 #include "/lib/util/functions.glsl"
 #include "/lib/materials/materialData.glsl"
@@ -13,22 +15,33 @@ vec2 AtmospherePixel;
 #include "/lib/misc/atmosphere_sampling.glsl"
 
 /* RENDERTARGETS: 6 */
-void main() {
+void main()
+{
     gl_FragData[0] = vec4(0.0);
 #if ATMOSPHERE_HALF_RES == 1
     // The submerged camera keeps its full-resolution water-medium path.
-    if (isEyeInWater != 0) discard;
+    if (isEyeInWater != 0)
+    {
+        discard;
+    }
+
     ivec2 Size = textureSize(colortex4, 0);
     vec2 CacheSize = AtmosphereCacheSize();
     vec2 Uv = clamp(Texcoord.st + AtmosphereJitter() / CacheSize, 0.5 / vec2(Size), 1.0 - 0.5 / vec2(Size));
     ivec2 Pixel = clamp(ivec2(Uv * vec2(Size)), ivec2(0), Size - 1);
     AtmospherePixel = vec2(Pixel) + 0.5;
-    if (IsMaterial(FetchMaterialData(colortex5, Uv), MaterialIdHand)) return;
+
+    if (IsMaterial(FetchMaterialData(colortex5, Uv), MaterialIdHand))
+    {
+        return;
+    }
+
     vec4 Snapshot = FetchOpaqueData(Pixel);
-    bool IsSky = Snapshot.b >= 0.999999;
+    bool bIsSky = Snapshot.b >= 0.999999;
     vec3 ViewPos = ReconstructOpaqueViewPos(Uv, Snapshot);
     vec3 RayDir = SafeNormal(ViewToWorldNormal(SafeNormal(ViewPos), gbufferModelViewInverse));
-    gl_FragData[0] = AirScattering(cameraPosition, RayDir, IsSky ? CloudMaxDistance : length(ViewPos));
+
+    gl_FragData[0] = AirScattering(cameraPosition, RayDir, bIsSky ? CloudMaxDistance : length(ViewPos));
 #endif
 }
 #endif
@@ -36,7 +49,9 @@ void main() {
 #ifdef VERTEX_SHADER
 out vec4 Texcoord;
 uniform int isEyeInWater;
-void main() {
+
+void main()
+{
     // Skip rasterization altogether when the air cache has no consumer.
 #if ATMOSPHERE_HALF_RES == 1
     gl_Position = isEyeInWater == 0 ? ftransform() : vec4(2.0, 2.0, 2.0, 1.0);

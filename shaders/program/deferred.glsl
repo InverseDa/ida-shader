@@ -3,9 +3,8 @@
 #include "/lib/materials/materialData.glsl"
 #include "/lib/lighting/frame.glsl"
 
-// =============================================================================
-// Fragment Shader
-// =============================================================================
+// ---- Fragment Shader ----
+
 #ifdef FRAGMENT_SHADER
 
 uniform sampler2D depthtex0;
@@ -19,7 +18,8 @@ in vec4 Texcoord;
 
 // Reading lightmap 9 and writing raw radiance 9 uses Iris's automatic flip.
 /* RENDERTARGETS: 4,10,9 */
-void main() {
+void main()
+{
     vec2 Uv = Texcoord.st;
     float Depth = texture2D(depthtex0, Uv).r;
     vec3 Color = texture2D(colortex0, Uv).rgb;
@@ -30,13 +30,15 @@ void main() {
     GeometryNormalOct = NormalData.ba;
 #endif
     vec4 Material = FetchMaterialData(colortex5, Uv);
-    bool IsHand = IsMaterial(Material, MaterialIdHand);
-    bool IsSky = Depth >= 0.999999;
-    bool Jittered = !IsSky && MaterialUsesTaaJitter(Material);
-    vec3 ViewPos = ReconstructSurfaceViewPos(Uv, Depth, Jittered);
+    bool bIsHand = IsMaterial(Material, MaterialIdHand);
+    bool bIsSky = Depth >= 0.999999;
+    bool bJittered = !bIsSky && MaterialUsesTaaJitter(Material);
+    vec3 ViewPos = ReconstructSurfaceViewPos(Uv, Depth, bJittered);
     vec3 WorldPos = ViewToWorldPos(ViewPos, gbufferModelViewInverse);
-    if (!IsSky && !IsHand && !IsMaterial(Material, MaterialIdUnlit)) {
-        float Ao = GetScreenSpaceAmbientOcclusion(ViewPos, Normal, Jittered);
+
+    if (!bIsSky && !bIsHand && !IsMaterial(Material, MaterialIdUnlit))
+    {
+        float Ao = GetScreenSpaceAmbientOcclusion(ViewPos, Normal, bJittered);
         float TransmissionVisibility;
         vec3 ShadowNormal = Normal;
 #if SHADOW_RECEIVER_PLANE == 1
@@ -45,28 +47,36 @@ void main() {
         float Visibility = ShadowMapping(WorldPos, ShadowNormal, 1.0, TransmissionVisibility);
         Color = ApplySunDirectLight(Color, Normal, ViewPos, WorldPos, Material, Visibility, TransmissionVisibility, Ao, texture2D(colortex9, Uv).rgb, NormalDecode(GeometryNormalOct));
     }
-    if (IsSky) Color = GetSkyRadiance(normalize(ViewPos));
-    gl_FragData[0] = vec4(EncodeOpaqueSnapshot(GeometryNormalOct, IsHand ? 1.0 : Depth, Jittered), 0.0, 1.0);
+
+    if (bIsSky)
+    {
+        Color = GetSkyRadiance(normalize(ViewPos));
+    }
+
+    gl_FragData[0] = vec4(EncodeOpaqueSnapshot(GeometryNormalOct, bIsHand ? 1.0 : Depth, bJittered), 0.0, 1.0);
+
     // Keep marks from cracks, glint and other effects drawn before deferred.
-    bool TemporalSurface = Jittered;
+    bool bTemporalSurface = bJittered;
 #if ATMOSPHERE_HALF_RES == 1 || (VOLUMETRIC_LIGHT == 1 && VOLUMETRIC_LIGHT_CACHE == 1)
     // Sky atmosphere has a jittered producer and typed TAA history. Real
     // overlays still mark their coverage in the reactive mask.
-    TemporalSurface = TemporalSurface || (IsSky && isEyeInWater == 0);
+    bTemporalSurface = bTemporalSurface || (bIsSky && isEyeInWater == 0);
 #endif
-    gl_FragData[1] = vec4(max(TemporalSurface ? 0.0 : 1.0, texture2D(colortex10, Uv).r));
+    gl_FragData[1] = vec4(max(bTemporalSurface ? 0.0 : 1.0, texture2D(colortex10, Uv).r));
+
     gl_FragData[2] = vec4(Color, 1.0);
 }
 
 #endif // FRAGMENT_SHADER
 
-// =============================================================================
-// Vertex Shader
-// =============================================================================
+// ---- Vertex Shader ----
+
 #ifdef VERTEX_SHADER
 
 out vec4 Texcoord;
-void main() {
+
+void main()
+{
     gl_Position = ftransform();
     Texcoord = gl_MultiTexCoord0;
     SetupFrameLighting();

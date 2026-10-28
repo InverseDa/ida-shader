@@ -3,9 +3,8 @@
 #include "/lib/materials/materialData.glsl"
 #include "/lib/lighting/frame.glsl"
 
-// =============================================================================
-// Fragment Shader
-// =============================================================================
+// ---- Fragment Shader ----
+
 #ifdef FRAGMENT_SHADER
 
 uniform sampler2D colortex5;
@@ -27,14 +26,16 @@ in vec4 Texcoord;
 #else
 /* RENDERTARGETS: 0,11 */
 #endif
-void main() {
+void main()
+{
     vec2 Uv = Texcoord.st;
     vec4 Snapshot = FetchOpaqueData(ivec2(gl_FragCoord.xy));
     vec4 Material = FetchMaterialData(colortex5, Uv);
     vec3 Color = texture2D(colortex9, Uv).rgb;
-    bool IsHand = IsMaterial(Material, MaterialIdHand);
-    bool IsSky = Snapshot.b >= 0.999999;
+    bool bIsHand = IsMaterial(Material, MaterialIdHand);
+    bool bIsSky = Snapshot.b >= 0.999999;
     vec3 ViewPos = ReconstructOpaqueViewPos(Uv, Snapshot);
+
     // These derivatives must run before the per-pixel ice branch.
     vec3 SurfaceNormal = NormalDecode(Snapshot.rg);
 #if MATERIAL_MODE == 1
@@ -45,54 +46,72 @@ void main() {
     float NormalVariance = SpecularNormalVariance(SurfaceNormal);
     float ViewVariance = SpecularNormalVariance(SafeNormal(ViewPos));
 #if SURFACE_WETNESS == 1 && PUDDLE_REFLECTIONS == 1
-    if (!IsSky && isEyeInWater == 0) {
+    if (!bIsSky && isEyeInWater == 0)
+    {
         Color = DrawPuddleReflection(Color, ViewPos, Material, ViewVariance);
     }
 #endif
     // Opaque packed/blue ice must be resolved before translucent geometry.
     // The air-side sky-reflection approximation is not valid for submerged ice.
-    if (!IsSky && isEyeInWater != 1 && IsMaterial(Material, MaterialIdIce)) {
+    if (!bIsSky && isEyeInWater != 1 && IsMaterial(Material, MaterialIdIce))
+    {
         Color = DrawIce(Color, ViewToWorldPos(ViewPos, gbufferModelViewInverse), ViewPos, SurfaceNormal, NormalVariance, ViewVariance);
     }
-    if (!IsHand && !IsSky && isEyeInWater == 1) {
-        vec3 Relative = ViewToWorldPos(ViewPos,gbufferModelViewInverse);
+
+    if (!bIsHand && !bIsSky && isEyeInWater == 1)
+    {
+        vec3 Relative = ViewToWorldPos(ViewPos, gbufferModelViewInverse);
         vec2 Water = FindWaterSurface(Relative);
-        Color = ApplyWaterCaustics(Color,Relative,ViewToWorldNormal(NormalDecode(Snapshot.rg),gbufferModelViewInverse),Water.x,Water.y);
+        Color = ApplyWaterCaustics(Color, Relative, ViewToWorldNormal(NormalDecode(Snapshot.rg), gbufferModelViewInverse), Water.x, Water.y);
     }
-    if (!IsHand) Color = ApplyOpaqueAtmosphere(Color, ViewPos, IsSky, Uv);
+
+    if (!bIsHand)
+    {
+        Color = ApplyOpaqueAtmosphere(Color, ViewPos, bIsSky, Uv);
+    }
+
     // Keep the water-composition baseline free of early effects. Their visible
     // contribution then survives as a destination delta through refraction.
     Color = max(Color, vec3(0.0));
+
     gl_FragData[1] = vec4(Color, 1.0);
+
     // Early effects carry their own medium attenuation and premultiplied alpha.
     // They must not be relit or fogged using the background surface's depth.
     vec4 Effect = texture2D(colortex1, Uv);
     float EffectDepth = texelFetch(colortex3, ivec2(gl_FragCoord.xy), 0).r;
-    // A later opaque draw may have covered an early effect. Conversely a new
-    // opaque surface BEHIND an effect must not erase that foreground effect.
-    // Account for FP16 view-depth rounding, rather than storing hardware depth
-    // in FP16 (which would collapse distant depths towards one).
-    if (!IsHand && -ViewPos.z + max(0.005, EffectDepth * 0.001) < EffectDepth) Effect = vec4(0.0);
+
+    // Reject effects hidden by newer opaque draws, with tolerance for FP16 view-depth rounding.
+    // Keep foreground effects when the newer opaque surface lies behind them.
+    if (!bIsHand && -ViewPos.z + max(0.005, EffectDepth * 0.001) < EffectDepth)
+    {
+        Effect = vec4(0.0);
+    }
+
     Color = Color * (1.0 - Effect.a) + Effect.rgb;
+
     gl_FragData[0] = vec4(Color, 1.0);
 #if SSR_TEMPORAL == 1
     // Buffers 1/3 have finished their early-effect color/depth lifetime.
     // Every pixel is overwritten before partial forward reflection draws.
     gl_FragData[2] = ReflectionColorWrite;
+
     gl_FragData[3] = ReflectionSurfaceWrite;
+
     gl_FragData[4] = vec4(ReflectionHitWrite.r, 1.0, 0.0, 0.0);
 #endif
 }
 
 #endif // FRAGMENT_SHADER
 
-// =============================================================================
-// Vertex Shader
-// =============================================================================
+// ---- Vertex Shader ----
+
 #ifdef VERTEX_SHADER
 
 out vec4 Texcoord;
-void main() {
+
+void main()
+{
     gl_Position = ftransform();
     Texcoord = gl_MultiTexCoord0;
     SetupFrameLighting();

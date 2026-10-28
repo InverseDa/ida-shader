@@ -5,9 +5,8 @@
 #include "/lib/materials/wetness.glsl"
 #include "/lib/post/taa.glsl"
 
-// =============================================================================
-// Fragment Shader
-// =============================================================================
+// ---- Fragment Shader ----
+
 #ifdef FRAGMENT_SHADER
 
 uniform sampler2D texture;
@@ -27,7 +26,8 @@ in float WetnessNormalUp;
 #endif
 
 /* RENDERTARGETS: 0,2,5,9 */
-void main() {
+void main()
+{
     // color: the biome color, texture: gray texture color
     // texture * color = RealColor
     vec3 GeometryNormal = SafeNormal(Normal);
@@ -40,7 +40,8 @@ void main() {
     vec3 Albedo = SrgbToLinear(Base.rgb);
 #if SURFACE_WETNESS == 1
     // PBR/normal derivatives above stay outside weather-dependent control flow.
-    if (surfaceWetness > 0.0 && WetnessProfile.x > 0.0) {
+    if (surfaceWetness > 0.0 && WetnessProfile.x > 0.0)
+    {
         float Amount = surfaceWetness * SURFACE_WETNESS_STRENGTH * RainExposure(Lmcoord.t, WetnessNormalUp);
         vec2 Response = WetSurfaceResponse(Pbr.MaterialData.r, Pbr.NormalVariance, WetnessProfile, Amount, GetMaterialMetallic(Pbr.MaterialData));
         Albedo *= Response.x;
@@ -48,16 +49,18 @@ void main() {
     }
 #endif
     gl_FragData[0] = vec4(Albedo, Base.a);
+
     gl_FragData[3] = vec4(SampleLocalSurfaceLightmap(lightmap, Lmcoord.st, ViewPos), 1.0);
+
     gl_FragData[1] = vec4(NormalEncode(Pbr.NormalView), NormalEncode(GeometryNormal));
+
     gl_FragData[2] = Pbr.MaterialData;
 }
 
 #endif // FRAGMENT_SHADER
 
-// =============================================================================
-// Vertex Shader
-// =============================================================================
+// ---- Vertex Shader ----
+
 #ifdef VERTEX_SHADER
 
 uniform float frameTimeCounter;
@@ -82,8 +85,10 @@ out float WetnessNormalUp;
 
 #include "/lib/materials/methods/foliage.glsl"
 
-void main() {
+void main()
+{
     Color = gl_Color;
+
     // 0 - texcoord
     // 1 - lightmap texcoord
     Texcoord = gl_TextureMatrix[0] * gl_MultiTexCoord0;
@@ -97,12 +102,18 @@ void main() {
     vec4 PositionInView = gl_ModelViewMatrix * Position;
     ViewPos = PositionInView.xyz;
     gl_Position = gl_ProjectionMatrix * PositionInView;
-    if (MaterialUsesTaaJitter(GetTerrainMaterialData(MaterialId))) ApplyTaaJitter(gl_Position);
+
+    if (MaterialUsesTaaJitter(GetTerrainMaterialData(MaterialId)))
+    {
+        ApplyTaaJitter(gl_Position);
+    }
+
     // the length from object vertex to camera center
     VertexToCameraDistance = length(PositionInView.xyz);
     Normal = gl_NormalMatrix * gl_Normal;
 #if SURFACE_WETNESS == 1
     WetnessProfile = GetWetnessProfile(MaterialId);
+
     // Geometric orientation avoids a moving wet/dry pattern from normal maps.
     WetnessNormalUp = (mat3(gbufferModelViewInverse) * SafeNormal(Normal)).y;
 #endif

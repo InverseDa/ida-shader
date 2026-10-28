@@ -1,9 +1,8 @@
 #include "/lib/constant.glsl"
 #include "/lib/util/functions.glsl"
 
-// =============================================================================
-// Fragment Shader
-// =============================================================================
+// ---- Fragment Shader ----
+
 #ifdef FRAGMENT_SHADER
 
 uniform sampler2D texture;
@@ -13,20 +12,23 @@ in vec4 Texcoord;
 in vec2 CascadeCoord;
 #endif
 
-void main() {
+void main()
+{
 #if SHADOW_CSM == 1
     // Rasterization clips to the whole atlas, not to an individual tile.
     // Discard tile overflow before ANY colour or depth write.
-    if (any(greaterThan(abs(CascadeCoord), vec2(1.0)))) discard;
+    if (any(greaterThan(abs(CascadeCoord), vec2(1.0))))
+    {
+        discard;
+    }
 #endif
     gl_FragData[0] = texture2D(texture, Texcoord.st);
 }
 
 #endif // FRAGMENT_SHADER
 
-// =============================================================================
-// Vertex Shader
-// =============================================================================
+// ---- Vertex Shader ----
+
 #ifdef VERTEX_SHADER
 
 uniform vec3 cameraPosition;
@@ -48,7 +50,8 @@ out vec4 ShadowTexcoord;
 out vec3 ShadowWorld;
 #endif
 
-void main() {
+void main()
+{
     vec4 ShadowView = gl_ModelViewMatrix * gl_Vertex;
     vec3 RelativeWorld = (shadowModelViewInverse * ShadowView).xyz;
 #if (PLACED_LIGHTS == 1 || (VOXEL_GI == 1 || VOXEL_REFLECTIONS == 1) || WATER_CAUSTICS == 1 || UNDERWATER_LIGHT == 1)
@@ -80,12 +83,15 @@ uniform vec3 cameraPosition;
 #endif
 #if SHADOW_CSM == 1
 out vec2 CascadeCoord;
-uniform mat4 shadowModelView, shadowProjection;
+uniform mat4 shadowModelView;
+uniform mat4 shadowProjection;
 uniform float far;
 #include "/lib/lighting/cascades.glsl"
 #endif
 #include "/lib/lighting/local_voxelize.glsl"
-void main() {
+
+void main()
+{
 #if (PLACED_LIGHTS == 1 || (VOXEL_GI == 1 || VOXEL_REFLECTIONS == 1) || WATER_CAUSTICS == 1 || UNDERWATER_LIGHT == 1)
     CollectLocalGeometry();
 #endif
@@ -96,32 +102,43 @@ void main() {
     vec2 LightA = (mat3(shadowModelView) * ShadowWorld[0]).xy;
     vec2 LightB = (mat3(shadowModelView) * ShadowWorld[1]).xy;
     vec2 LightD = (mat3(shadowModelView) * ShadowWorld[2]).xy;
-    for (int C = 0; C < 4; ++C) {
+
+    for (int C = 0; C < 4; ++C)
+    {
         float Radius = CascadeRadius(C);
         float Texel = 4.0 * Radius / float(shadowMapResolution);
         vec2 Remainder = Origin - floor(Origin / Texel + 0.5) * Texel;
         vec2 A = (LightA + Remainder) / Radius;
         vec2 B = (LightB + Remainder) / Radius;
         vec2 D = (LightD + Remainder) / Radius;
+
         // Conservative XY rejection: retain distant casters along the light
         // direction; never reject using their camera distance / receiver split.
         if (any(greaterThan(min(A, min(B, D)), vec2(1.0))) ||
-            any(lessThan(max(A, max(B, D)), vec2(-1.0)))) continue;
-        for (int V = 0; V < 3; ++V) {
+            any(lessThan(max(A, max(B, D)), vec2(-1.0))))
+        {
+            continue;
+        }
+
+        for (int V = 0; V < 3; ++V)
+        {
             CascadeCoord = V == 0 ? A : (V == 1 ? B : D);
             gl_Position = gl_in[V].gl_Position;
             gl_Position.xy = (CascadeCoord * 0.5 + CascadeTile(C) - 0.5) * gl_Position.w;
             Texcoord = ShadowTexcoord[V];
             EmitVertex();
         }
+
         EndPrimitive();
     }
 #else
-    for (int V = 0; V < 3; ++V) {
+    for (int V = 0; V < 3; ++V)
+    {
         gl_Position = gl_in[V].gl_Position;
         Texcoord = ShadowTexcoord[V];
         EmitVertex();
     }
+
     EndPrimitive();
 #endif
 }

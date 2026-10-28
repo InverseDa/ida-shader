@@ -1,5 +1,7 @@
 #version 430 compatibility
 
+// ---- Gbuffers Lightning ----
+
 // Shader Stage
 #define VERTEX_SHADER
 
