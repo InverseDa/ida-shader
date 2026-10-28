@@ -22,6 +22,7 @@
 #define REFLECTION_CLOUDS                1    // [0 1]
 #define CLOUD_STYLE                      1    // [0 1]
 #define CLOUD_SAMPLES                    20   // [12 20 32]
+#define ATMOSPHERE_HALF_RES               1    // [0 1]
 #define CLOUD_SHADOWS                    1    // [0 1]
 #define CLOUD_SHADOW_STRENGTH            0.8  // [0.0 0.4 0.6 0.8 1.0]
 #define VOLUMETRIC_LIGHT                  1    // [0 1]

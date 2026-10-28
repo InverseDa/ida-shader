@@ -48,7 +48,13 @@ void main() {
     if (IsSky) Color = GetSkyRadiance(normalize(ViewPos));
     gl_FragData[0] = vec4(EncodeOpaqueSnapshot(GeometryNormalOct, IsHand ? 1.0 : Depth, Jittered), 0.0, 1.0);
     // Keep marks from cracks, glint and other effects drawn before deferred.
-    gl_FragData[1] = vec4(max(Jittered ? 0.0 : 1.0, texture2D(colortex10, Uv).r));
+    bool TemporalSurface = Jittered;
+#if ATMOSPHERE_HALF_RES == 1
+    // Sky atmosphere has a jittered producer and typed TAA history. Real
+    // overlays still mark their coverage in the reactive mask.
+    TemporalSurface = TemporalSurface || (IsSky && isEyeInWater == 0);
+#endif
+    gl_FragData[1] = vec4(max(TemporalSurface ? 0.0 : 1.0, texture2D(colortex10, Uv).r));
     gl_FragData[2] = vec4(Color, 1.0);
 }
 

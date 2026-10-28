@@ -110,7 +110,7 @@ vec3 RenderSunShafts(vec3 OriginWorld, vec3 RayDir, float Distance) {
     // Fixed strata do not stretch when the terminal surface/depth changes.
     // Near samples are denser for branches; a fixed spatial phase avoids
     // frame-varying grain. Visibility is filtered by hardware PCF.
-    float PhaseOffset = 0.35 + 0.30 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    float PhaseOffset = 0.35 + 0.30 * fract(52.9829189 * fract(dot(IDA_ATMOSPHERE_PIXEL, vec2(0.06711056, 0.00583715))));
     const int CloudStride = VOLUMETRIC_LIGHT_SAMPLES / 8;
     float CloudA = SunShaftCloudVisibility(OriginWorld, LightDir);
     float CloudB = CloudA;

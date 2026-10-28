@@ -2,6 +2,11 @@
 #define IDA_CLOUD_DENSITY_GLSL
 #include "/lib/settings.glsl"
 
+// Cached atmosphere uses the chosen full-resolution receiver's spatial phase.
+#ifndef IDA_ATMOSPHERE_PIXEL
+#define IDA_ATMOSPHERE_PIXEL gl_FragCoord.xy
+#endif
+
 // Shared geometry, coverage and wind for visible clouds and surface shadows.
 #if CLOUD_STYLE == 0
 const float CloudBottom = 192.0;

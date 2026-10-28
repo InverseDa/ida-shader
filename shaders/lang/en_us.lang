@@ -126,5 +126,9 @@ option.LOCAL_LIGHT_SHADOWS=Local Light Shadows
 option.LOCAL_LIGHT_SHADOWS.comment=Placed sources use current-frame scene occluders and cached shadows, including off-screen geometry. Held sources retain screen contact shadows.
 
 option.PLACED_LIGHTS=Placed Block Lights
+option.ATMOSPHERE_HALF_RES=Half-resolution Clouds and Shafts
+option.ATMOSPHERE_HALF_RES.comment=Half-width/height off-screen atmosphere with jitter and TAA reconstruction. No depth-aware upsampling or edge retracing. Off restores full resolution. Sample counts and light strength stay unchanged.
+value.ATMOSPHERE_HALF_RES.0=Full resolution
+value.ATMOSPHERE_HALF_RES.1=Half resolution
 
 option.PLACED_LIGHTS.comment=On by default. Torches, lanterns, soul lights and lit redstone lamps use spherical attenuation and nearby dynamic shadows. Distant light retains the vanilla lightmap.

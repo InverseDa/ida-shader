@@ -111,7 +111,7 @@ vec4 RenderVolumetricClouds(vec3 OriginWorld, vec3 RayDir, float MaxDistance, bo
 #if CLOUD_STYLE == 0
     return RenderBlockClouds(OriginWorld, RayDir, MaxDistance, NeedColor);
 #else
-    return RenderVolumetricCloudsAtPhase(OriginWorld, RayDir, MaxDistance, NeedColor, CloudSamplePhase(gl_FragCoord.xy));
+    return RenderVolumetricCloudsAtPhase(OriginWorld, RayDir, MaxDistance, NeedColor, CloudSamplePhase(IDA_ATMOSPHERE_PIXEL));
 #endif
 }
 
@@ -129,8 +129,7 @@ float AirFogAmount(float Distance, float OriginHeight, vec3 RayDir, bool IsSkySu
 #include "/lib/misc/godrays.glsl"
 #include "/lib/misc/water_lighting.glsl"
 
-vec3 ApplyAirSegment(vec3 Color, vec3 OriginWorld, vec3 RayDir, float Distance, bool IsSkySurface) {
-    float MaxDistance = IsSkySurface ? CloudMaxDistance : max(Distance, 0.0);
+vec3 ApplyAirHaze(vec3 Color, vec3 OriginWorld, vec3 RayDir, float Distance, bool IsSkySurface) {
     vec3 AirColor = GetSkyBaseRadiance(normalize(mat3(gbufferModelView) * RayDir));
     // Aerial haze integrates scattered light, rather than the saturated sky
     // pixel (or solar disk) behind a surface. Preserve luminance but soften
@@ -140,16 +139,26 @@ vec3 ApplyAirSegment(vec3 Color, vec3 OriginWorld, vec3 RayDir, float Distance, 
     // v0.1a night haze used the same colored sky/moon radiance as reflections.
     AirColor = mix(AirColor, GetSkyRadiance(normalize(mat3(gbufferModelView) * RayDir)), NightValue);
     AirColor = mix(AirColor, vec3(0.52, 0.58, 0.62), rainStrength * 0.42);
-    vec3 Fogged = mix(Color, AirColor, AirFogAmount(Distance, OriginWorld.y, RayDir, IsSkySurface));
+    return mix(Color, AirColor, AirFogAmount(Distance, OriginWorld.y, RayDir, IsSkySurface));
+}
+
+// Premultiplied scattering plus cloud opacity; independent of surface colour.
+vec4 AirScattering(vec3 OriginWorld, vec3 RayDir, float MaxDistance) {
     vec3 SunShafts = isEyeInWater == 1 ? vec3(0.0) : RenderSunShafts(OriginWorld, RayDir, MaxDistance);
     // Most geometry is below the cloud slab. Do not enter the ray marcher
     // when the entire camera-to-surface segment is below or above it.
     float EndHeight = OriginWorld.y + RayDir.y * MaxDistance;
-    if (max(OriginWorld.y, EndHeight) < CloudBottom || min(OriginWorld.y, EndHeight) > CloudTop) return Fogged + SunShafts;
+    if (max(OriginWorld.y, EndHeight) < CloudBottom || min(OriginWorld.y, EndHeight) > CloudTop) return vec4(SunShafts, 0.0);
     vec4 Clouds = RenderVolumetricClouds(OriginWorld, RayDir, MaxDistance, true);
     // Shafts integrate only foreground air up to the cloud base: clouds behind
     // that segment must not erase it. The underwater/additive paths skip it.
-    return mix(Fogged, Clouds.rgb, Clouds.a) + SunShafts;
+    return vec4(Clouds.rgb * Clouds.a + SunShafts, Clouds.a);
+}
+
+vec3 ApplyAirSegment(vec3 Color, vec3 OriginWorld, vec3 RayDir, float Distance, bool IsSkySurface) {
+    vec3 Fogged = ApplyAirHaze(Color, OriginWorld, RayDir, Distance, IsSkySurface);
+    vec4 Scattering = AirScattering(OriginWorld, RayDir, IsSkySurface ? CloudMaxDistance : max(Distance, 0.0));
+    return Fogged * (1.0 - Scattering.a) + Scattering.rgb;
 }
 
 vec3 ApplyAtmosphere(vec3 Color, vec3 ViewPos, bool IsSkySurface) {

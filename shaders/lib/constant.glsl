@@ -31,15 +31,18 @@ const int colortex3Format = RGBA16F;
 #else
 const int colortex3Format = R16F;
 #endif
-// Early effect depth in R; after deferred1, current reflection surface metadata.
+// Early effect depth in R; after deferred11, current reflection surface metadata.
 const vec4 colortex3ClearColor = vec4(65504.0, 0.0, 0.0, 0.0);
 const int R11F_G11F_B10F = 0;
-#if SSR_HALF_RES == 1 && SSR_TEMPORAL == 1
-const int colortex6Format = RGBA16F; // Receiver UV offset, unsigned travel, signed receiver depth; then RGB Bloom.
+#if ATMOSPHERE_HALF_RES == 1 || (SSR_HALF_RES == 1 && SSR_TEMPORAL == 1)
+const int colortex6Format = RGBA16F; // Atmosphere scattering/opacity -> reflection receiver/travel -> RGB Bloom.
 const bool colortex6Nearest = false; // Filter travel; metadata is always fetched with texelFetch.
-const int colortex7Format = RGBA16F;
 #else
 const int colortex6Format = R11F_G11F_B10F;
+#endif
+#if SSR_HALF_RES == 1 && SSR_TEMPORAL == 1
+const int colortex7Format = RGBA16F;
+#else
 const int colortex7Format = R11F_G11F_B10F;
 #endif
 const int RG32F = 0;

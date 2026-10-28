@@ -29,6 +29,8 @@ uniform int isEyeInWater;
 #include "/lib/post/water_temporal.glsl"
 
 in vec4 Texcoord;
+// Exactly representable FP16, distinct from the existing water tag -65504.
+const float SkyHistoryTag = -65472.0;
 
 vec2 GetPreviousFrameUv(vec3 ViewPos, out float PreviousDepth) {
     vec3 CameraRelativeWorld = ViewToWorldPos(ViewPos, gbufferModelViewInverse);
@@ -74,6 +76,10 @@ void main() {
     // pass. Dynamic overlays reject history; verified water has its own
     // reflection-aware reprojection and history type below.
     bool Stable = Opaque.a > 1.5 && !Reactive;
+    bool Sky = false;
+#if ATMOSPHERE_HALF_RES == 1
+    Sky = !Reactive && Depth >= 0.999999 && isEyeInWater == 0;
+#endif
     vec2 Jitter = GetTaaJitterNdc(frameCounter, vec2(viewWidth, viewHeight)) * 0.5;
     vec3 ViewPos = Stable ? ReconstructViewPos(Uv - Jitter, Depth, gbufferProjectionInverse) : vec3(0.0);
     float ViewDepth = -ViewPos.z;
@@ -82,6 +88,27 @@ void main() {
     bool ValidSurface = Stable && Depth < 0.999999 && ViewDepth > 0.0 && ViewDepth <= 65504.0;
     vec3 ResolvedColor = CurrentColor;
     bool HistoryAccepted = false;
+    if (Sky && frameCounter > 1 && length(cameraPosition - previousCameraPosition) < 8.0) {
+        // Sky geometry is unjittered. Reproject a direction, not distant terrain.
+        vec3 Direction = normalize(ReconstructViewPos(Uv, 1.0, gbufferProjectionInverse));
+        vec3 WorldDirection = mat3(gbufferModelViewInverse) * Direction;
+        vec3 PreviousDirection = mat3(gbufferPreviousModelView) * WorldDirection;
+        if (PreviousDirection.z < 0.0) {
+            vec2 PreviousUv = ProjectViewToScreenPos(PreviousDirection, gbufferPreviousProjection).xy;
+            if (IsScreenUvInRange(PreviousUv)) {
+                vec4 History = texture2D(colortex8, PreviousUv);
+                // Mixed silhouettes, overlays and changed media reset history.
+                if (History.a == SkyHistoryTag && IsFiniteRadiance(History.rgb)) {
+                    float SkyMotion = length((PreviousUv - Uv) * vec2(viewWidth, viewHeight));
+                    float Weight = mix(0.88, 0.45, clamp(SkyMotion * 0.06, 0.0, 1.0));
+                    // Translation causes cloud parallax, unlike infinite sky.
+                    Weight *= 1.0 - 0.75 * clamp(length(cameraPosition - previousCameraPosition) * 2.0, 0.0, 1.0);
+                    ResolvedColor = mix(CurrentColor, ClampHistoryToNeighborhood(Pixel, CurrentColor, History.rgb), Weight);
+                    HistoryAccepted = true;
+                }
+            }
+        }
+    }
     if(Water && frameCounter>1 && length(cameraPosition-previousCameraPosition)<8.0) {
         float Agreement;
         vec2 PreviousUv=WaterPreviousUv(Uv,WaterView,WaterNormal,WaterTravel,Agreement);
@@ -124,7 +151,7 @@ void main() {
                     vec4 Tap = texelFetch(colortex8, Pixel, 0);
                     float Weight = (X == 0 ? 1.0 - Fraction.x : Fraction.x) *
                                    (Y == 0 ? 1.0 - Fraction.y : Fraction.y);
-                    bool SameMedium = isEyeInWater == 1 ? Tap.a < 0.0 && Tap.a!=WaterHistoryTag : Tap.a > 0.0;
+                    bool SameMedium = isEyeInWater == 1 ? Tap.a < 0.0 && Tap.a!=WaterHistoryTag && Tap.a!=SkyHistoryTag : Tap.a > 0.0;
                     if (IsFiniteRadiance(Tap.rgb) && SameMedium && abs(abs(Tap.a) - PreviousDepth) < max(0.05, PreviousDepth * 0.01)) {
                         HistoryColor += Tap.rgb * Weight;
                         ValidWeight += Weight;
@@ -153,9 +180,9 @@ void main() {
     if (!HistoryAccepted) ResolvedColor = ResolveSpatialAa(Uv, CurrentColor);
     ResolvedColor = clamp(ResolvedColor, vec3(0.0), vec3(65504.0));
     gl_FragData[0] = vec4(ResolvedColor, 1.0);
-    // Zero is invalid; -65504 marks water. Other signs record opaque camera
-    // medium, so crossing the water surface cannot reuse a different type.
-    gl_FragData[1] = vec4(ResolvedColor, Water ? WaterHistoryTag : (ValidSurface ? ViewDepth * (isEyeInWater == 1 ? -1.0 : 1.0) : 0.0));
+    // Zero is invalid; -65504 marks water, -65472 marks sky. Other signs
+    // record opaque camera medium, keeping these history types separate.
+    gl_FragData[1] = vec4(ResolvedColor, Sky ? SkyHistoryTag : (Water ? WaterHistoryTag : (ValidSurface ? ViewDepth * (isEyeInWater == 1 ? -1.0 : 1.0) : 0.0)));
 }
 
 #endif // FRAGMENT_SHADER

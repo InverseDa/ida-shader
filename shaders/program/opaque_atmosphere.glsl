@@ -19,6 +19,7 @@ uniform sampler2D colortex2;
 in vec4 Texcoord;
 #include "/lib/materials/lighting/sky.glsl"
 #include "/lib/misc/atmosphere.glsl"
+#include "/lib/misc/atmosphere_resolve.glsl"
 #include "/lib/materials/translucents/water.glsl"
 #include "/lib/materials/puddles.glsl"
 #if SSR_TEMPORAL == 1
@@ -58,7 +59,7 @@ void main() {
         vec2 Water = FindWaterSurface(Relative);
         Color = ApplyWaterCaustics(Color,Relative,ViewToWorldNormal(NormalDecode(Snapshot.rg),gbufferModelViewInverse),Water.x,Water.y);
     }
-    if (!IsHand) Color = ApplyAtmosphere(Color, ViewPos, IsSky);
+    if (!IsHand) Color = ApplyOpaqueAtmosphere(Color, ViewPos, IsSky, Uv);
     // Keep the water-composition baseline free of early effects. Their visible
     // contribution then survives as a destination delta through refraction.
     Color = max(Color, vec3(0.0));
