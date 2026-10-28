@@ -126,9 +126,15 @@ option.LOCAL_LIGHT_SHADOWS=局部光源阴影
 option.LOCAL_LIGHT_SHADOWS.comment=放置光源使用每帧更新的场景遮挡与阴影缓存，支持屏幕外遮挡；手持光源仍使用屏幕接触阴影。
 
 option.PLACED_LIGHTS=放置光源照明
-option.ATMOSPHERE_HALF_RES=云与体积光半分辨率
-option.ATMOSPHERE_HALF_RES.comment=默认开启。云与体积光按半宽半高离屏渲染，jitter 配合 TAA 重建，无深度感知上采样或边缘重追踪。关闭可对比全分辨率，采样数和光照强度不变。
+option.ATMOSPHERE_HALF_RES=大气离屏渲染
+option.ATMOSPHERE_HALF_RES.comment=按较低分辨率离屏渲染，jitter 配合 TAA 重建。云渲染分辨率可选半宽高或四分之一宽高，无深度感知上采样。体积光缓存使用独立开关。
 value.ATMOSPHERE_HALF_RES.0=全分辨率
-value.ATMOSPHERE_HALF_RES.1=半分辨率
+value.ATMOSPHERE_HALF_RES.1=降分辨率
+option.CLOUD_QUARTER_RES=云渲染分辨率
+option.CLOUD_QUARTER_RES.comment=默认四分之一宽高，射线数量为原半宽高模式的四分之一，每条射线采样数不变。需要开启大气离屏渲染。
+value.CLOUD_QUARTER_RES.0=半宽高
+value.CLOUD_QUARTER_RES.1=四分之一宽高
+option.VOLUMETRIC_LIGHT_CACHE=体积光缓存
+option.VOLUMETRIC_LIGHT_CACHE.comment=不透明与透明表面共享当帧低分辨率光束积分，每层按自身距离截断。占用 96 MiB 显存，关闭恢复各表面独立步进。
 
 option.PLACED_LIGHTS.comment=默认开启。火把、灯笼、灵魂灯、点亮的红石灯等使用球形衰减；附近几何支持动态阴影，远处恢复原版补光。

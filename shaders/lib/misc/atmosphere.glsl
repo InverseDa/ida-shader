@@ -90,7 +90,12 @@ vec4 RenderVolumetricCloudsAtPhase(vec3 OriginWorld, vec3 RayDir, float MaxDista
                 // One sample towards the light adds directional self-shadow,
                 // instead of shading every cloud as a vertical uniform column.
                 vec3 ShadowPosition = AbsolutePos + LightDir * 24.0;
-                float ShadowCoverage = GetCloudCoverageAtHeight(ShadowPosition, vec2(8.0));
+                // Above the slab both height density and remaining column are
+                // zero. The original column visibility is exactly one there,
+                // independent of the three unread density/noise samples.
+                float ShadowCoverage = 0.0;
+                if (ShadowPosition.y < CloudTop)
+                    ShadowCoverage = GetCloudCoverageAtHeight(ShadowPosition, vec2(8.0));
                 float ShadowDensity = ShadowCoverage * GetCloudHeightDensity(ShadowPosition.y);
                 float LocalDepth = (Coverage * GetCloudHeightDensity(AbsolutePos.y) + ShadowDensity) * 12.0 * CloudExtinction;
                 float LightVisibility = GetCloudShadow(ShadowPosition.y, LightDir.y, ShadowCoverage) *

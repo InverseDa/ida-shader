@@ -8,13 +8,13 @@ in vec4 ShadowTint[];
 flat in int ShadowBlockId[];
 uniform sampler2D texture;
 
-void StoreLocalVoxel(ivec3 V) {
-    if (any(lessThan(V, ivec3(0))) || any(greaterThanEqual(V, ivec3(256)))) return;
-    uint I = LocalIndex(V / 4);
-    ivec3 S = V & 3;
-    uint Bit = uint(S.x + 4 * S.y + 16 * S.z);
-    if (Bit < 32u) atomicOr(LocalOccluders[I].x, 1u << Bit);
-    else atomicOr(LocalOccluders[I].y, 1u << (Bit - 32u));
+void StoreLocalVoxelBatch(uint Index, uvec2 Mask, uint Material, uint Face) {
+    if (Index == 0xffffffffu) return;
+    if (Mask.x != 0u) atomicOr(LocalOccluders[Index].x, Mask.x);
+    if (Mask.y != 0u) atomicOr(LocalOccluders[Index].y, Mask.y);
+#if (VOXEL_GI == 1 || VOXEL_REFLECTIONS == 1)
+    atomicMax(VoxelMaterial[Index*6u+Face], Material);
+#endif
 }
 
 void CollectLocalGeometry() {
@@ -22,8 +22,14 @@ void CollectLocalGeometry() {
     if (Id > 10100 && Id < 10140) {
         ivec3 Cell = ivec3(floor(LocalGridPosition(ShadowBlockCentre[0], cameraPosition)));
         if (InsideLocalGrid(Cell)) {
-            atomicMax(LocalSources[LocalIndex(Cell)], uint(Id - 10100));
-            atomicOr(LocalCoarse[LocalClusterIndex(Cell / 4)], 1u);
+            uint Previous = atomicMax(LocalSources[LocalIndex(Cell)], uint(Id - 10100));
+            if (Previous == 0u) {
+                ivec3 Sub = Cell & 3;
+                uint Bit = uint(Sub.x + 4 * Sub.y + 16 * Sub.z);
+                uint Cluster = LocalClusterIndex(Cell / 4);
+                if (Bit < 32u) atomicOr(LocalCoarse[Cluster].x, 1u << Bit);
+                else atomicOr(LocalCoarse[Cluster].y, 1u << (Bit - 32u));
+            }
         }
         // Small luminous models must not shadow their own centre.
         // Full luminous cubes can be crossed only at the ray's final source cell.
@@ -89,8 +95,22 @@ void CollectLocalGeometry() {
     // material/plane with this face during the per-frame atomic collection.
     ivec2 Hi = min(ivec2(ceil(max(vec2(A[X], A[Y]), max(vec2(B[X], B[Y]), vec2(C[X], C[Y])))))-1, ivec2(255));
     if (min(A[Z], min(B[Z], C[Z])) > 256.0 || max(A[Z], max(B[Z], C[Z])) < 0.0) return;
-    for (int Yp = Lo.y; Yp <= Hi.y; ++Yp) {
-        for (int Xp = Lo.x; Xp <= Hi.x; ++Xp) {
+    uint Face = 0u;
+#if (VOXEL_GI == 1 || VOXEL_REFLECTIONS == 1)
+    Face = uint(VoxelFace(N));
+#endif
+    // Visit the identical quarter-block samples in block-sized tiles. Merge
+    // their associative OR / packed-uint MAX locally before touching SSBOs.
+    // A sloping triangle can cross depth blocks inside a tile: flush whenever
+    // the complete block index changes, retaining its original subvoxel mask.
+    for (int By = Lo.y / 4; By <= Hi.y / 4; ++By) {
+      for (int Bx = Lo.x / 4; Bx <= Hi.x / 4; ++Bx) {
+        uint Pending = 0xffffffffu, Material = 0u;
+        uvec2 Mask = uvec2(0u);
+        ivec2 First = max(Lo, ivec2(Bx, By) * 4);
+        ivec2 Last = min(Hi, ivec2(Bx, By) * 4 + 3);
+        for (int Yp = First.y; Yp <= Last.y; ++Yp) {
+          for (int Xp = First.x; Xp <= Last.x; ++Xp) {
             vec2 P = vec2(Xp, Yp) + 0.5;
             vec2 Delta = P - vec2(A[X], A[Y]);
             float Wb = dot(Db, Delta), Wc = dot(Dc, Delta);
@@ -103,18 +123,27 @@ void CollectLocalGeometry() {
             if (Texel.a < 0.2) continue;
             float Depth = A[Z] + Wb * (B[Z] - A[Z]) + Wc * (C[Z] - A[Z]);
             ivec3 Cell; Cell[X] = Xp; Cell[Y] = Yp; Cell[Z] = int(floor(Depth));
-            StoreLocalVoxel(Cell);
+            if (any(lessThan(Cell,ivec3(0))) || any(greaterThanEqual(Cell,ivec3(256)))) continue;
+            uint Index = LocalIndex(Cell/4);
+            if (Index != Pending) {
+                StoreLocalVoxelBatch(Pending, Mask, Material, Face);
+                Pending = Index; Mask = uvec2(0u); Material = 0u;
+            }
+            ivec3 Sub = Cell & 3;
+            uint Bit = uint(Sub.x + 4 * Sub.y + 16 * Sub.z);
+            if (Bit < 32u) Mask.x |= 1u << Bit;
+            else Mask.y |= 1u << (Bit - 32u);
 #if (VOXEL_GI == 1 || VOXEL_REFLECTIONS == 1)
-            if (all(greaterThanEqual(Cell,ivec3(0))) && all(lessThan(Cell,ivec3(256)))) {
-                int Face = VoxelFace(N);
                 vec3 Tint = ShadowTint[0].rgb*Tw.x + ShadowTint[1].rgb*Tw.y + ShadowTint[2].rgb*Tw.z;
                 uvec3 Rgb = uvec3(clamp(Texel.rgb*Tint,0.0,1.0)*255.0+0.5);
                 float Plane = Depth*0.25 + N[Z]*0.0075 - float(Cell[Z]/4);
                 uint Packed = Rgb.x | (Rgb.y<<8u) | (Rgb.z<<16u) | (uint(clamp(Plane,0.0,1.0)*255.0+0.5)<<24u);
-                atomicMax(VoxelMaterial[LocalIndex(Cell/4)*6u+uint(Face)],max(Packed,1u));
-            }
+                Material = max(Material,max(Packed,1u));
 #endif
+          }
         }
+        StoreLocalVoxelBatch(Pending, Mask, Material, Face);
+      }
     }
 #endif
 }

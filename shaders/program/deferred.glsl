@@ -49,7 +49,7 @@ void main() {
     gl_FragData[0] = vec4(EncodeOpaqueSnapshot(GeometryNormalOct, IsHand ? 1.0 : Depth, Jittered), 0.0, 1.0);
     // Keep marks from cracks, glint and other effects drawn before deferred.
     bool TemporalSurface = Jittered;
-#if ATMOSPHERE_HALF_RES == 1
+#if ATMOSPHERE_HALF_RES == 1 || (VOLUMETRIC_LIGHT == 1 && VOLUMETRIC_LIGHT_CACHE == 1)
     // Sky atmosphere has a jittered producer and typed TAA history. Real
     // overlays still mark their coverage in the reactive mask.
     TemporalSurface = TemporalSurface || (IsSky && isEyeInWater == 0);

@@ -40,6 +40,8 @@ vec3 SampleLocalSurfaceLightmap(sampler2D Lightmap, vec2 Uv, vec3 ViewPosition) 
     float Coverage = LocalGridCoverage(P - LocalGridPhase(cameraPosition));
     if (Coverage <= 0.0) return Legacy;
     uint Base = LocalClusterIndex(ivec3(floor(P)) / 4) * 8u;
+    if (LocalCandidates[Base] == 0xffffffffu) return Legacy;
+    float CandidateLimit = LocalCandidateLimit(P, Base);
     float Level = clamp(Uv.x * 16.0 - 0.5, 0.0, 15.0);
     float Represented = 0.0;
     for (uint K = 0u; K < 8u; ++K) {
@@ -50,7 +52,7 @@ vec3 SampleLocalSurfaceLightmap(sampler2D Lightmap, vec2 Uv, vec3 ViewPosition) 
         vec3 Delta = abs(P - (vec3(LocalCell(Index)) + 0.5));
         float Estimate = max(PlacedLightLevel(Type) - dot(Delta, vec3(1.0)), 0.0);
         Represented = max(Represented, smoothstep(-2.0, 0.5, Estimate - Level) *
-                          smoothstep(0.0, 2.0, Estimate) * LocalCandidateWeight(P, Light, Base));
+                          smoothstep(0.0, 2.0, Estimate) * LocalCandidateWeight(P, Light, CandidateLimit));
     }
     if (Represented <= 0.0) return Legacy;
     // Replace only the positive block-light increment near recognised sources.

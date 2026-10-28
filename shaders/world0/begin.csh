@@ -21,7 +21,7 @@ void main() {
     LocalOccluders[I] = uvec2(0u);
     if (I < 4096u) {
         LocalWaterSurface[I] = 0u;
-        LocalCoarse[I] = 0u;
+        LocalCoarse[I] = uvec2(0u);
         LocalOccluderCoarse[I] = 0u;
     }
     if (I < 32768u) LocalCandidates[I] = 0xffffffffu;

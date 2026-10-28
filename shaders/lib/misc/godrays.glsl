@@ -8,6 +8,11 @@
 // tonemapping. This is an artistic near-air profile, not another extinction fog.
 // No screen-space sun position, radial blur, extra history or moonlight gain.
 #include "/lib/common/space.glsl"
+#include "/lib/misc/volume_cache.glsl"
+#ifdef IDA_VOLUME_CACHE_WRITE
+ivec2 SunShaftWritePixel;
+ivec2 SunShaftWriteSize;
+#endif
 #if SHADOW_CSM == 1
 #include "/lib/lighting/cascades.glsl"
 float SunShaftCascadeSample(vec3 Position, int Index) {
@@ -91,7 +96,9 @@ vec3 RenderSunShafts(vec3 OriginWorld, vec3 RayDir, float Distance) {
     if (Source <= 0.0) return vec3(0.0);
     float Range = min(128.0, far);
     float End = min(Distance, Range);
+#ifndef IDA_VOLUME_CACHE_WRITE
     if (RayDir.y > 0.00001) End = min(End, (CloudBottom - OriginWorld.y) / RayDir.y);
+#endif
     if (End <= 0.05) return vec3(0.0);
 
     float Density = 0.00082 * (1.0 + rainStrength * 2.15) *
@@ -105,6 +112,23 @@ vec3 RenderSunShafts(vec3 OriginWorld, vec3 RayDir, float Distance) {
     // released time palette; this does not replace the yellow sky halo.
     float Phase = 0.12 + 0.20 * 0.5775 / pow(1.4225 - 1.30 * Mu, 1.5);
     vec3 Radiance = GetDirectionalLightRadiance(SunColor, 0.0) * vec3(1.0, 0.90, 0.68);
+#if defined(IDA_VOLUME_CACHE_ACTIVE) && !defined(IDA_VOLUME_CACHE_WRITE)
+    // Effects drawn before deferred10 have no current-frame prefix field and
+    // keep the direct path. Camera-relative rays alone may share this cache.
+    ivec2 CacheSize = SunShaftCacheSize();
+    bool CacheReady = SunShaftVolumeHeader.x == uint(frameCounter) + 1u &&
+                      all(equal(SunShaftVolumeHeader.yz, uvec2(CacheSize)));
+    if (CacheReady && all(equal(OriginWorld, cameraPosition))) {
+        if (SunShaftVolumeHeader.w == 0u) return vec3(0.0);
+        vec3 ViewRay = mat3(gbufferModelView) * RayDir;
+        vec2 CacheUv = ProjectViewToScreenPos(ViewRay, gbufferProjection).xy;
+        if (SunShaftVolumeHeader.w == uint(VOLUMETRIC_LIGHT_SAMPLES) && ViewRay.z < -0.000001 &&
+            all(greaterThanEqual(CacheUv, vec2(0.0))) && all(lessThanEqual(CacheUv, vec2(1.0)))) {
+            float Integral = SunShaftCacheIntegral(CacheUv, CacheSize, End, Range, Density, NearColumn);
+            return Radiance * (Integral * Phase * Source * VOLUMETRIC_LIGHT_STRENGTH * DIRECT_LIGHT_STRENGTH);
+        }
+    }
+#endif
     float Accumulated = 0.0;
     float PreviousTransmission = 1.0;
     // Fixed strata do not stretch when the terminal surface/depth changes.
@@ -121,6 +145,9 @@ vec3 RenderSunShafts(vec3 OriginWorld, vec3 RayDir, float Distance) {
     // retains every shadow query without two matrix transforms at each step.
     vec4 ShadowOrigin = shadowProjection * (shadowModelView * vec4(RelativeOrigin, 1.0));
     vec4 ShadowDirection = shadowProjection * (shadowModelView * vec4(RayDir, 0.0));
+#ifdef IDA_VOLUME_CACHE_WRITE
+    float PairFirst = 0.0;
+#endif
     for (int I = 0; I < VOLUMETRIC_LIGHT_SAMPLES; ++I) {
         float A = max(float(I - 1) + PhaseOffset, 0.0) / float(VOLUMETRIC_LIGHT_SAMPLES);
         float B = I + 1 == VOLUMETRIC_LIGHT_SAMPLES ? 1.0 :
@@ -153,6 +180,14 @@ vec3 RenderSunShafts(vec3 OriginWorld, vec3 RayDir, float Distance) {
         float RangeFade = 1.0 - smoothstep(Range * 0.75, Range, T);
         Accumulated += (PreviousTransmission - Transmission) * Visibility * RangeFade;
         PreviousTransmission = Transmission;
+#ifdef IDA_VOLUME_CACHE_WRITE
+        // Store the complete ray, independent of any opaque surface depth.
+        // Two FP16 prefixes per word; planes are coalesced across neighbouring
+        // invocations. All supported sample counts are even (24/32/48).
+        if (I % 2 == 0) PairFirst = Accumulated;
+        else SunShaftVolumeData[SunShaftCacheAddress(SunShaftWritePixel, SunShaftWriteSize, I / 2)] =
+                 packHalf2x16(vec2(PairFirst, Accumulated));
+#endif
     }
     return Radiance * (Accumulated * Phase * Source * VOLUMETRIC_LIGHT_STRENGTH * DIRECT_LIGHT_STRENGTH);
 #else

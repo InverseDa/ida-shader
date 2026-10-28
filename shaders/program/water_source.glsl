@@ -61,48 +61,56 @@ void main() {
         if(Z<0.999999 && SourceDepth(Z)<Depth.x) { Depth.x=SourceDepth(Z);Nearest=ivec2(X,Y); }
     }
     float Weight=0.0;
-    bool Leaf=SourceIsLeaf(Nearest);
-    vec2 Anchor=texelFetch(colortex4,Nearest,0).rg;
-    vec3 AnchorView=SourceView(Nearest,Anchor,Full);
-    vec3 AnchorNormal=NormalDecode(DecodeOpaqueSnapshot(Anchor).rg);
-    // A grazing face spans a wide Z range inside one source footprint. Group
-    // by its surface plane, not a thin Z slice that deletes the far half.
-    float Layer=max(0.08,Depth.x*0.001);
-    float BackDepth=1e20;ivec2 BackPixel=Lo;
-    for(int Y=Lo.y;Y<Hi.y;++Y) for(int X=Lo.x;X<Hi.x;++X) {
-        vec2 Snapshot=texelFetch(colortex4,ivec2(X,Y),0).rg;
-        float Z=Snapshot.g;
-        if(Z>=0.999999) continue;
-        float Linear=SourceDepth(Z);
-        vec3 View=SourceView(ivec2(X,Y),Snapshot,Full);
-        if(abs(dot(View-AnchorView,AnchorNormal))>Layer) {
-            if(Linear<BackDepth) { BackDepth=Linear;BackPixel=ivec2(X,Y); }
-            continue;
-        }
-        Depth.y=max(Depth.y,Linear);
-        Height+=(gbufferModelViewInverse*vec4(View,1.0)).y;
-        Color+=texelFetch(colortex9,ivec2(X,Y),0).rgb;Weight+=1.0;
-    }
-    Color/=max(Weight,1.0);
-    Height/=max(Weight,1.0);
-    vec2 BackRange=vec2(BackDepth,0.0);vec3 BackColor=vec3(0);float BackHeight=0.0,BackWeight=0.0;
-    bool BackLeaf=SourceIsLeaf(BackPixel);
-    if(BackDepth<1e19) {
-        vec2 BackAnchor=texelFetch(colortex4,BackPixel,0).rg;
-        vec3 BackView=SourceView(BackPixel,BackAnchor,Full);
-        vec3 BackNormal=NormalDecode(DecodeOpaqueSnapshot(BackAnchor).rg);
+    bool Leaf=false;
+    float BackDepth=1e20;
+    vec2 BackRange=vec2(1e20,0.0);vec3 BackColor=vec3(0);float BackHeight=0.0,BackWeight=0.0;
+    uint BackFlag=0u;
+    // Empty cells still publish both empty nodes and participate in the leaf
+    // reduction barriers. Only their surface scans and shading are skipped.
+    if(Depth.x<1e20) {
+        Leaf=SourceIsLeaf(Nearest);
+        vec2 Anchor=texelFetch(colortex4,Nearest,0).rg;
+        vec3 AnchorView=SourceView(Nearest,Anchor,Full);
+        vec3 AnchorNormal=NormalDecode(DecodeOpaqueSnapshot(Anchor).rg);
+        // A grazing face spans a wide Z range inside one source footprint. Group
+        // by its surface plane, not a thin Z slice that deletes the far half.
+        float Layer=max(0.08,Depth.x*0.001);
+        ivec2 BackPixel=Lo;
         for(int Y=Lo.y;Y<Hi.y;++Y) for(int X=Lo.x;X<Hi.x;++X) {
             vec2 Snapshot=texelFetch(colortex4,ivec2(X,Y),0).rg;
-            if(Snapshot.g>=0.999999) continue;
-            vec3 V=SourceView(ivec2(X,Y),Snapshot,Full);
-            if(abs(dot(V-AnchorView,AnchorNormal))<=Layer || abs(dot(V-BackView,BackNormal))>max(0.08,BackDepth*0.001)) continue;
-            BackRange.y=max(BackRange.y,-V.z);
-            BackColor+=texelFetch(colortex9,ivec2(X,Y),0).rgb;
-            BackHeight+=(gbufferModelViewInverse*vec4(V,1)).y;BackWeight+=1.0;
+            float Z=Snapshot.g;
+            if(Z>=0.999999) continue;
+            float Linear=SourceDepth(Z);
+            vec3 View=SourceView(ivec2(X,Y),Snapshot,Full);
+            if(abs(dot(View-AnchorView,AnchorNormal))>Layer) {
+                if(Linear<BackDepth) { BackDepth=Linear;BackPixel=ivec2(X,Y); }
+                continue;
+            }
+            Depth.y=max(Depth.y,Linear);
+            Height+=(gbufferModelViewInverse*vec4(View,1.0)).y;
+            Color+=texelFetch(colortex9,ivec2(X,Y),0).rgb;Weight+=1.0;
         }
+        Color/=max(Weight,1.0);
+        Height/=max(Weight,1.0);
+        BackRange.x=BackDepth;
+        if(BackDepth<1e19) {
+            bool BackLeaf=SourceIsLeaf(BackPixel);
+            vec2 BackAnchor=texelFetch(colortex4,BackPixel,0).rg;
+            vec3 BackView=SourceView(BackPixel,BackAnchor,Full);
+            vec3 BackNormal=NormalDecode(DecodeOpaqueSnapshot(BackAnchor).rg);
+            for(int Y=Lo.y;Y<Hi.y;++Y) for(int X=Lo.x;X<Hi.x;++X) {
+                vec2 Snapshot=texelFetch(colortex4,ivec2(X,Y),0).rg;
+                if(Snapshot.g>=0.999999) continue;
+                vec3 V=SourceView(ivec2(X,Y),Snapshot,Full);
+                if(abs(dot(V-AnchorView,AnchorNormal))<=Layer || abs(dot(V-BackView,BackNormal))>max(0.08,BackDepth*0.001)) continue;
+                BackRange.y=max(BackRange.y,-V.z);
+                BackColor+=texelFetch(colortex9,ivec2(X,Y),0).rgb;
+                BackHeight+=(gbufferModelViewInverse*vec4(V,1)).y;BackWeight+=1.0;
+            }
+            BackFlag=BackWeight>0.0 && BackLeaf ? 0x80000000u : 0u;
+        }
+        BackColor/=max(BackWeight,1.0);BackHeight/=max(BackWeight,1.0);
     }
-    BackColor/=max(BackWeight,1.0);BackHeight/=max(BackWeight,1.0);
-    uint BackFlag=BackWeight>0.0 && BackLeaf ? 0x80000000u : 0u;
     WaterNodes[1398016+Cell.x+Cell.y*1024]=uvec4(floatBitsToUint(BackRange),packHalf2x16(BackColor.rg)|BackFlag,packHalf2x16(vec2(BackColor.b,BackHeight)));
     if(Cell==ivec2(0)) {
         ReflectionTiles[4096]=uint(frameCounter)+1u;

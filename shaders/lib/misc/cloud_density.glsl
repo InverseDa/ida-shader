@@ -116,7 +116,10 @@ float SampleStyledCloudCoverage(vec3 AbsolutePos, vec2 Footprint, bool Detail) {
 #else
     float Coverage = GetCloudCoverageAtHeight(AbsolutePos, Footprint);
     // Shadow/reflection columns retain the broad mass at their lower cost.
-    if (!Detail || Coverage <= 0.01 || Coverage >= 0.99) return Coverage;
+    // Erosion noise is non-negative: once coverage reaches the smoothstep's
+    // upper bound, detail is exactly one. Avoid two 3D-noise plane reads in
+    // these dense regions without changing either density or silhouette.
+    if (!Detail || Coverage <= 0.01 || Coverage >= 0.38) return Coverage;
     vec2 P = AbsolutePos.xz - vec2(2.0, 0.8) * frameTimeCounter;
     float Erosion = SampleCloudBody(vec3(P.x / 22.0, (AbsolutePos.y - CloudBottom) / 18.0, P.y / 22.0),
                                    max(Footprint.x / 22.0, Footprint.y / 18.0));

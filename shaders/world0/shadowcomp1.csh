@@ -11,7 +11,11 @@ void main() {
     uint Lane = gl_LocalInvocationID.x;
     if (Lane < 64u) NearestShadow[Lane] = 0xffffffffu;
     barrier();
-    for (uint I = Lane; I < 262144u; I += 256u) {
+    for (uint C = Lane; C < 4096u; C += 256u) {
+      ivec3 Cluster = ivec3(C & 15u, (C >> 4u) & 15u, C >> 8u);
+      uvec2 Sources = LocalCoarse[C];
+      while (any(notEqual(Sources, uvec2(0u)))) {
+        uint I = LocalIndex(LocalClusterCell(Cluster, PopLocalSourceBit(Sources)));
         uint Type = LocalSources[I];
         if (Type == 0u) continue;
         vec3 Delta = vec3(LocalCell(I)) + PlacedLightOffset(Type) - 32.0 - LocalGridPhase(cameraPosition);
@@ -21,6 +25,7 @@ void main() {
             Key = max(Key, Previous);
             if (Key == 0xffffffffu) break;
         }
+      }
     }
     barrier();
     if (Lane < 64u) {

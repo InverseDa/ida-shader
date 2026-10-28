@@ -44,7 +44,7 @@ void main() {
         if (all(greaterThan(S,vec3(0.0))) && all(lessThan(S,vec3(1.0)))) Visibility = texture(shadowtex1, S - vec3(0,0,0.00002));
         // The shadow atlas covers remote blockers outside the local volume.
         vec3 H; ivec3 B;
-        if (TraceVoxel(P,L,24.0,H,B)) Visibility = 0.0;
+        if (Visibility > 0.0 && TraceVoxel(P,L,24.0,H,B)) Visibility = 0.0;
         Direct = GetDirectionalLightRadiance(Sun,Night) * DirectionalHeightStrength(L.y,Night) *
                  WeatherDirectFactor(rainStrength) * SurfaceSunlightGain(rainStrength,Night) * DIRECT_LIGHT_STRENGTH * max(dot(N,L),0.0) * Visibility;
 #if CLOUD_SHADOWS == 1
@@ -53,16 +53,19 @@ void main() {
     }
 #if PLACED_LIGHTS == 1
     uint Base = LocalClusterIndex(Cell/4) * 8u;
+    float CandidateLimit = LocalCandidateLimit(P, Base);
     for (uint K = 0u; K < 8u; ++K) {
         uint Source = LocalCandidates[Base+K]; if (Source == 0xffffffffu) break;
         uint Type = LocalSources[Source]; vec3 Target = vec3(LocalCell(Source))+PlacedLightOffset(Type);
         vec3 Delta = Target-P; float D2 = dot(Delta,Delta), D = sqrt(D2), Radius = PlacedLightLevel(Type)*0.85;
         float Cosine = max(dot(N,Delta/max(D,0.001)),0.0);
         if (D >= Radius || Cosine <= 0.0) continue;
+        float CandidateWeight = LocalCandidateWeight(P,Target,CandidateLimit);
+        if (CandidateWeight <= 0.0) continue;
         vec3 H; ivec3 B;
         if (TraceVoxel(P,Delta/max(D,0.001),max(D-0.05,0.0),H,B) && any(notEqual(B,LocalCell(Source)))) continue;
         float Window = max(1.0-D2/(Radius*Radius),0.0);
-        Direct += PlacedLightColor(Type) * (7.0*LOCAL_LIGHT_STRENGTH) * Window*Window/(1.0+0.28*D2) * (PlacedLightLevel(Type)/15.0) * Cosine * LocalCandidateWeight(P,Target,Base);
+        Direct += PlacedLightColor(Type) * (7.0*LOCAL_LIGHT_STRENGTH) * Window*Window/(1.0+0.28*D2) * (PlacedLightLevel(Type)/15.0) * Cosine * CandidateWeight;
     }
 #endif
     // Lambertian outgoing radiance; the gather's cosine PDF cancels pi.

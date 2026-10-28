@@ -90,10 +90,19 @@ void main() {
     CollectLocalGeometry();
 #endif
 #if SHADOW_CSM == 1
+    // Light-space transforms are common to all four nested projections.
+    // Keep the existing per-cascade texel snapping and conservative rejection.
+    vec2 Origin = (mat3(shadowModelView) * cameraPosition).xy;
+    vec2 LightA = (mat3(shadowModelView) * ShadowWorld[0]).xy;
+    vec2 LightB = (mat3(shadowModelView) * ShadowWorld[1]).xy;
+    vec2 LightD = (mat3(shadowModelView) * ShadowWorld[2]).xy;
     for (int C = 0; C < 4; ++C) {
-        vec2 A = CascadeLocalPosition(ShadowWorld[0], C);
-        vec2 B = CascadeLocalPosition(ShadowWorld[1], C);
-        vec2 D = CascadeLocalPosition(ShadowWorld[2], C);
+        float Radius = CascadeRadius(C);
+        float Texel = 4.0 * Radius / float(shadowMapResolution);
+        vec2 Remainder = Origin - floor(Origin / Texel + 0.5) * Texel;
+        vec2 A = (LightA + Remainder) / Radius;
+        vec2 B = (LightB + Remainder) / Radius;
+        vec2 D = (LightD + Remainder) / Radius;
         // Conservative XY rejection: retain distant casters along the light
         // direction; never reject using their camera distance / receiver split.
         if (any(greaterThan(min(A, min(B, D)), vec2(1.0))) ||

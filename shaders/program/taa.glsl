@@ -77,7 +77,7 @@ void main() {
     // reflection-aware reprojection and history type below.
     bool Stable = Opaque.a > 1.5 && !Reactive;
     bool Sky = false;
-#if ATMOSPHERE_HALF_RES == 1
+#if ATMOSPHERE_HALF_RES == 1 || (VOLUMETRIC_LIGHT == 1 && VOLUMETRIC_LIGHT_CACHE == 1)
     Sky = !Reactive && Depth >= 0.999999 && isEyeInWater == 0;
 #endif
     vec2 Jitter = GetTaaJitterNdc(frameCounter, vec2(viewWidth, viewHeight)) * 0.5;

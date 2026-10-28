@@ -19,9 +19,9 @@ void main() {
     for (uint K = Lane; K < 729u; K += 64u) {
         ivec3 C = Cluster + ivec3(K % 9u, (K / 9u) % 9u, K / 81u) - 4;
         if (any(lessThan(C, ivec3(0))) || any(greaterThanEqual(C, ivec3(16)))) continue;
-        if (LocalCoarse[LocalClusterIndex(C)] == 0u) continue;
-        for (uint J = 0u; J < 64u; ++J) {
-            ivec3 Cell = C * 4 + ivec3(J & 3u, (J >> 2u) & 3u, J >> 4u);
+        uvec2 Sources = LocalCoarse[LocalClusterIndex(C)];
+        while (any(notEqual(Sources, uvec2(0u)))) {
+            ivec3 Cell = LocalClusterCell(C, PopLocalSourceBit(Sources));
             uint Index = LocalIndex(Cell), Type = LocalSources[Index];
             if (Type == 0u) continue;
             vec3 Delta = vec3(Cell) + PlacedLightOffset(Type) - Centre;

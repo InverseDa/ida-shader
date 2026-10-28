@@ -14,11 +14,16 @@ vec4 SampleReflectionEnvironment(vec3 Sky, vec3 RelativeWorld, vec3 ViewDirectio
     // pattern at grazing angles. Share weather/wind/density with the sky, but
     // spend at most three noise reads instead of a second volume march per pixel.
     float Distance = (Interval.x + Interval.y) * 0.5;
+    // Decide invisible columns before density/noise and cloud lighting. These
+    // are the same exact-zero fades previously multiplied into alpha below.
+    float Visibility = CloudDistanceWeight(Distance) * smoothstep(0.015, 0.12, abs(DirectionWorld.y));
+    if (Visibility <= 0.0) return vec4(Sky, 1.0);
     vec3 Position = Origin + DirectionWorld * Distance;
     float PixelAngle = 2.0 / max(abs(gbufferProjection[1].y) * viewHeight, 1.0);
     vec2 Footprint = max(Travel * vec2(length(DirectionWorld.xz), abs(DirectionWorld.y)) * 0.5,
                          vec2(Distance * PixelAngle));
     float Coverage = SampleStyledCloudCoverage(Position, Footprint, false);
+    if (Coverage <= 0.0) return vec4(Sky, 1.0);
     float Column = GetCloudHeightDensity(Position.y) * Travel;
     if (abs(DirectionWorld.y) > 0.000001)
         Column = abs(CloudColumnLengthAbove(Origin.y + DirectionWorld.y * Interval.x) -
@@ -26,7 +31,7 @@ vec4 SampleReflectionEnvironment(vec3 Sky, vec3 RelativeWorld, vec3 ViewDirectio
     float Alpha = 1.0 - exp(-Coverage * Column * CloudExtinction);
     // Long grazing paths cannot resolve a single column. Fade the approximation
     // into the sky, instead of stretching its texture into horizontal bands.
-    Alpha *= CloudDistanceWeight(Distance) * smoothstep(0.015, 0.12, abs(DirectionWorld.y));
+    Alpha *= Visibility;
     vec3 LightDir = ViewToWorldNormal(normalize(shadowLightPosition), gbufferModelViewInverse);
     vec3 Light = GetDirectionalLightRadiance(SunColor, NightValue) *
                  DirectionalHeightStrength(LightDir.y, NightValue) * WeatherDirectFactor(rainStrength);

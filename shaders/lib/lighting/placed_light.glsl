@@ -49,6 +49,8 @@ vec3 EvaluatePlacedLights(vec3 Albedo, vec3 Normal, vec3 ViewPos, float Roughnes
     float Coverage = LocalGridCoverage(P - LocalGridPhase(cameraPosition));
     if (Coverage <= 0.0 || LOCAL_LIGHT_STRENGTH <= 0.0) return vec3(0.0);
     uint Base = LocalClusterIndex(ivec3(floor(P)) / 4) * 8u;
+    if (LocalCandidates[Base] == 0xffffffffu) return vec3(0.0);
+    float CandidateLimit = LocalCandidateLimit(P, Base);
     vec3 Result = vec3(0.0);
     vec3 WorldNormal = normalize(mat3(gbufferModelViewInverse) * Normal);
     vec3 ShadowNormal = normalize(mat3(gbufferModelViewInverse) * GeometryNormal);
@@ -62,7 +64,7 @@ vec3 EvaluatePlacedLights(vec3 Albedo, vec3 Normal, vec3 ViewPos, float Roughnes
         float D2 = dot(Delta, Delta);
         float Attenuation = LocalLightAttenuation(D2, PlacedLightLevel(Type));
         if (Attenuation <= 0.0 || dot(WorldNormal, Delta) <= 0.0) continue;
-        Attenuation *= LocalCandidateWeight(P, LightPosition, Base);
+        Attenuation *= LocalCandidateWeight(P, LightPosition, CandidateLimit);
         if (Attenuation <= 0.0) continue;
         float Visibility = 1.0;
 #if LOCAL_LIGHT_SHADOWS == 1
